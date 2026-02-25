@@ -1,0 +1,36 @@
+{
+  "name": "open-palace",
+  "version": "0.1.0",
+  "description": "A storage-compute separated Agent memory system — MCP Server for structured knowledge management",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "open-palace": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "mcp",
+    "agent",
+    "memory",
+    "open-palace"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "js-yaml": "^4.1.0",
+    "simple-git": "^3.27.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.13.5",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  }
+}
