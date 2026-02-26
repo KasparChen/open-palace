@@ -225,19 +225,35 @@ mp_system_list        → Should show librarian and health_check
 mp_onboarding_status  → Should report setup status
 ```
 
-### Onboarding (OpenClaw)
+### One-prompt setup (for agents with shell access)
 
-For OpenClaw users, Open Palace has a guided onboarding flow. After connecting the MCP Server, copy and paste this prompt to your agent:
+If your agent can run shell commands (OpenClaw, Cursor Agent, Claude Code, etc.), paste this and let it handle everything:
 
 ```
-I have the Open Palace MCP Server connected. Please:
-1. Run mp_onboarding_status to check setup
-2. Run mp_onboarding_init to initialize (creates skill file, updates TOOLS.md, syncs workspace files)
-3. Add mp_index_get to the session startup flow in AGENTS.md so every new session automatically loads global awareness
-4. Verify by running mp_index_get
+Install and set up Open Palace — the ECS-structured memory system for agents.
+
+Steps:
+1. Clone and build:
+   git clone https://github.com/kasparchen/open-palace.git ~/open-palace
+   cd ~/open-palace && npm install && npm run build
+2. Register as MCP server in your config. The entry point is: node ~/open-palace/dist/index.js
+   - For Cursor: add to .cursor/mcp.json under mcpServers
+   - For OpenClaw (mcporter): add to ~/.openclaw/workspace/config/mcporter.json under servers
+   - For Claude Desktop: add to ~/Library/Application Support/Claude/claude_desktop_config.json under mcpServers
+3. After the MCP server is connected, run mp_onboarding_init to complete initialization
+4. Add mp_index_get to your session startup flow (e.g. AGENTS.md) so every new session loads global awareness automatically
+5. Verify with mp_index_get
 ```
 
-After onboarding, every new session will automatically discover and use Open Palace tools.
+### Post-connection onboarding
+
+If the MCP server is already installed and connected but not yet initialized:
+
+```
+Run mp_onboarding_status to check current state, then mp_onboarding_init to initialize.
+After that, add mp_index_get to the session startup flow in AGENTS.md so every
+new session automatically loads the global awareness index.
+```
 
 ---
 

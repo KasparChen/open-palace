@@ -225,19 +225,35 @@ mp_system_list        → 应显示 librarian 和 health_check
 mp_onboarding_status  → 应显示安装状态和引导步骤
 ```
 
-### Onboarding（OpenClaw）
+### 一键安装（适用于有 shell 权限的 agent）
 
-OpenClaw 用户有自动化的 onboarding 流程。连接 MCP Server 后，复制以下 prompt 发给你的 Agent：
+如果你的 agent 能执行 shell 命令（OpenClaw、Cursor Agent、Claude Code 等），直接粘贴这段 prompt：
 
 ```
-我已经连接了 Open Palace MCP Server。请帮我完成初始化：
-1. 运行 mp_onboarding_status 检查当前状态
-2. 运行 mp_onboarding_init 完成初始化（创建 skill 文件、更新 TOOLS.md、同步 workspace 文件）
-3. 在 AGENTS.md 的 session 启动流程中加入 mp_index_get，让每个新 session 自动加载全局感知索引
-4. 运行 mp_index_get 验证一切正常
+安装并配置 Open Palace -- Agent 的 ECS 结构化记忆系统。
+
+步骤：
+1. 克隆并构建：
+   git clone https://github.com/kasparchen/open-palace.git ~/open-palace
+   cd ~/open-palace && npm install && npm run build
+2. 注册为 MCP server。入口文件：node ~/open-palace/dist/index.js
+   - Cursor：添加到 .cursor/mcp.json 的 mcpServers 下
+   - OpenClaw (mcporter)：添加到 ~/.openclaw/workspace/config/mcporter.json 的 servers 下
+   - Claude Desktop：添加到 ~/Library/Application Support/Claude/claude_desktop_config.json 的 mcpServers 下
+3. MCP server 连接后，运行 mp_onboarding_init 完成初始化
+4. 在 session 启动流程中加入 mp_index_get（如 AGENTS.md），让每个新 session 自动加载全局感知索引
+5. 运行 mp_index_get 验证
 ```
 
-Onboarding 完成后，所有 Agent 的每个新 session 都会自动发现和使用 Open Palace 工具。
+### 已连接后的初始化
+
+如果 MCP server 已经安装连接但还没初始化过：
+
+```
+运行 mp_onboarding_status 检查当前状态，然后运行 mp_onboarding_init 完成初始化。
+之后在 AGENTS.md 的 session 启动流程中加入 mp_index_get，
+让每个新 session 自动加载全局感知索引。
+```
 
 ---
 
