@@ -11,6 +11,7 @@ import { paths } from "../utils/paths.js";
 import { readYaml, writeYaml } from "../utils/yaml.js";
 import { triggerHook } from "./posthook.js";
 import { isoNow } from "../utils/id.js";
+import { writeSoulToWorkspace } from "./sync.js";
 import type { Entity, EvolutionEntry } from "../types.js";
 
 export async function listEntities(): Promise<Entity[]> {
@@ -93,9 +94,13 @@ export async function updateSoul(
   entity.evolution_log.push(evolutionEntry);
 
   await writeYaml(paths.entity(entityId), entity);
+
+  // Bidirectional sync: write back to OpenClaw workspace SOUL.md
+  const wroteBack = await writeSoulToWorkspace(entityId, content);
+
   await triggerHook("entity.update_soul", {
     scope: `entity/${entityId}`,
-    summary: `soul updated: ${reason}`,
+    summary: `soul updated: ${reason}${wroteBack ? " (synced to workspace)" : ""}`,
     entity_id: entityId,
   });
   return entity;

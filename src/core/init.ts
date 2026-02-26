@@ -7,6 +7,8 @@ import fs from "node:fs/promises";
 import { paths } from "../utils/paths.js";
 import { writeYaml, writeMarkdown } from "../utils/yaml.js";
 import { initGitRepo } from "./git.js";
+import { syncWorkspace } from "./sync.js";
+import { getConfig } from "./config.js";
 import type { PalaceConfig } from "../types.js";
 
 const DEFAULT_CONFIG: PalaceConfig = {
@@ -69,5 +71,19 @@ export async function initDataDirectory(): Promise<{ created: boolean }> {
   }
 
   await initGitRepo();
+
+  // Run workspace sync on every startup (lightweight SHA256 diff check)
+  try {
+    const config = await getConfig();
+    const syncResult = await syncWorkspace(config);
+    if (syncResult.changes.length > 0) {
+      console.error(
+        `[open-palace] Synced ${syncResult.changes.length} workspace file(s): ${syncResult.changes.map((c) => c.file).join(", ")}`
+      );
+    }
+  } catch {
+    // Sync failure is non-fatal — config may not exist yet on first init
+  }
+
   return { created };
 }

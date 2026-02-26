@@ -54,4 +54,5 @@ export const paths = {
     path.join(getDataDir(), "sync", host, "mappings.yaml"),
   syncState: (host: string) =>
     path.join(getDataDir(), "sync", host, "sync-state.yaml"),
+  workspaceBackupDir: () => path.join(getDataDir(), "sync", "workspace-backup"),
 };

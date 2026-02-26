@@ -23,6 +23,7 @@ import { registerComponentTools } from "./tools/component-tools.js";
 import { registerChangelogTools } from "./tools/changelog-tools.js";
 import { registerConfigTools } from "./tools/config-tools.js";
 import { registerSystemTools } from "./tools/system-tools.js";
+import { registerOnboardingTools } from "./tools/onboarding-tools.js";
 
 async function main() {
   // Initialize data directory and git repo
@@ -55,6 +56,7 @@ async function main() {
   registerChangelogTools(server);
   registerConfigTools(server);
   registerSystemTools(server);
+  registerOnboardingTools(server);
 
   // Connect via stdio transport
   const transport = new StdioServerTransport();

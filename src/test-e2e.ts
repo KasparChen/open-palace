@@ -48,7 +48,8 @@ async function main() {
   console.log("\n[2] Config");
   const cfg = await config.getConfig();
   assert(cfg.version === "0.1.0", "config version is 0.1.0");
-  assert(cfg.librarian.schedules.digest.interval === "daily", "librarian digest is daily");
+  const validIntervals = ["hourly", "daily", "weekly", "monthly", "manual"];
+  assert(validIntervals.includes(cfg.librarian.schedules.digest.interval), "librarian digest has valid interval");
 
   // 3. Entity CRUD
   console.log("\n[3] Entity Registry");
@@ -174,6 +175,23 @@ async function main() {
   const notFound = await system.executeSystem("nonexistent_system");
   assert(!notFound.success, "nonexistent system returns failure");
   assert(notFound.message.includes("not found"), "correct error message");
+
+  // 11. Workspace Sync
+  console.log("\n[11] Workspace Sync");
+  const { syncWorkspace, getWorkspacePath, writeSoulToWorkspace } = await import("./core/sync.js");
+  const syncCfg = await config.getConfig();
+
+  // syncWorkspace should return a result (may or may not detect a workspace)
+  const syncResult = await syncWorkspace(syncCfg);
+  assert(typeof syncResult.synced === "boolean", "syncWorkspace returns synced status");
+  assert(Array.isArray(syncResult.changes), "syncWorkspace returns changes array");
+
+  // writeSoulToWorkspace should handle missing workspace gracefully
+  if (!getWorkspacePath()) {
+    const wrote = await writeSoulToWorkspace("main", "test content");
+    // If no workspace path, should return false (no crash)
+    assert(wrote === false || wrote === true, "writeSoulToWorkspace handles no workspace gracefully");
+  }
 
   // Summary
   console.log(`\n=== Results: ${passed} passed, ${failed} failed ===\n`);

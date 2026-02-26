@@ -23,6 +23,7 @@ export interface Entity {
   soul_content: string;
   evolution_log: EvolutionEntry[];
   host_mappings: Record<string, HostMapping>;
+  metadata?: Record<string, unknown>;
 }
 
 // ─── Changelog ────────────────────────────────────────────
@@ -106,12 +107,40 @@ export interface LLMConfig {
   mode?: "sampling" | "direct" | "auto";
 }
 
+export interface OnboardingConfig {
+  completed: boolean;
+  completed_at?: string;
+  workspace_path?: string;
+}
+
+export interface WorkspaceSyncConfig {
+  host: string;
+  workspace_path: string;
+  watched_files: string[];
+  entity_mapping: Record<string, string>;
+}
+
 export interface PalaceConfig {
   version: string;
   data_dir: string;
   llm?: LLMConfig;
   librarian: LibrarianConfig;
   sync?: Record<string, SyncConfig>;
+  workspace_sync?: WorkspaceSyncConfig;
+  onboarding?: OnboardingConfig;
+}
+
+// ─── Workspace Sync ──────────────────────────────────────
+
+export interface FileSyncState {
+  sha256: string;
+  last_synced: string;
+  file_path: string;
+}
+
+export interface WorkspaceSyncState {
+  files: Record<string, FileSyncState>;
+  last_full_sync?: string;
 }
 
 // ─── PostHook ─────────────────────────────────────────────
@@ -126,7 +155,9 @@ export type HookEvent =
   | "component.unload"
   | "index.update"
   | "system.execute"
-  | "system.configure";
+  | "system.configure"
+  | "sync.workspace"
+  | "onboarding.complete";
 
 export interface HookContext {
   event: HookEvent;
