@@ -111,6 +111,7 @@ export interface OnboardingConfig {
   completed: boolean;
   completed_at?: string;
   workspace_path?: string;
+  version?: string;
 }
 
 export interface WorkspaceSyncConfig {
@@ -118,6 +119,20 @@ export interface WorkspaceSyncConfig {
   workspace_path: string;
   watched_files: string[];
   entity_mapping: Record<string, string>;
+}
+
+export interface DecayConfig {
+  enabled: boolean;
+  archive_threshold: number;
+  max_age_days: number;
+  pinned_entries: string[];
+  exclude_types: string[];
+}
+
+export interface ValidationConfig {
+  enabled: boolean;
+  auto_validate_decisions: boolean;
+  auto_validate_summaries: boolean;
 }
 
 export interface PalaceConfig {
@@ -128,6 +143,10 @@ export interface PalaceConfig {
   sync?: Record<string, SyncConfig>;
   workspace_sync?: WorkspaceSyncConfig;
   onboarding?: OnboardingConfig;
+  memory_ingest?: MemoryIngestConfig;
+  decay?: DecayConfig;
+  validation?: ValidationConfig;
+  search?: SearchConfig;
 }
 
 // ─── Workspace Sync ──────────────────────────────────────
@@ -141,6 +160,140 @@ export interface FileSyncState {
 export interface WorkspaceSyncState {
   files: Record<string, FileSyncState>;
   last_full_sync?: string;
+}
+
+// ─── Scratch ──────────────────────────────────────────────
+
+export interface ScratchEntry {
+  id: string;
+  time: string;
+  content: string;
+  tags?: string[];
+  source: string; // "agent" | "ingest:memory/YYYY-MM-DD.md" | ...
+  promoted_to?: string; // component scope after promotion
+}
+
+// ─── Memory Ingest ────────────────────────────────────────
+
+export interface MemoryIngestConfig {
+  enabled: boolean;
+  /** Glob pattern relative to workspace, default "memory/*.md" */
+  pattern: string;
+  /** Auto-run on MCP server startup */
+  auto_on_startup: boolean;
+}
+
+export interface MemoryIngestState {
+  files: Record<string, { sha256: string; last_ingested: string }>;
+  last_run?: string;
+}
+
+// ─── Memory Decay ────────────────────────────────────────
+
+export interface DecayState {
+  last_run?: string;
+  last_result?: "success" | "error";
+  entries_archived: number;
+  entries_preserved: number;
+  archive_history: ArchiveRecord[];
+}
+
+export interface ArchiveRecord {
+  time: string;
+  entries_moved: number;
+  components_affected: string[];
+  reason: string;
+}
+
+export interface AccessLog {
+  [key: string]: {
+    last_accessed: string;
+    access_count: number;
+  };
+}
+
+// ─── Write Validation ────────────────────────────────────
+
+export interface ValidationResult {
+  passed: boolean;
+  risks: ValidationRisk[];
+  suggestion?: string;
+}
+
+export interface ValidationRisk {
+  type: "duplicate" | "contradiction" | "hallucination" | "stale_override";
+  severity: "error" | "warning" | "info";
+  description: string;
+  conflicting_entry_id?: string;
+}
+
+// ─── Relationship ────────────────────────────────────────
+
+export interface InteractionTag {
+  tag: string;
+  count: number;
+  last: string;
+  note?: string;
+}
+
+export interface TrustChange {
+  date: string;
+  delta: number;
+  reason: string;
+}
+
+export interface RelationshipProfile {
+  entity_id: string;
+  type: "user" | "agent" | "external";
+  profile: {
+    style?: string;
+    expertise?: string[];
+    language_pref?: string[];
+    notes?: string;
+  };
+  interaction_tags: InteractionTag[];
+  trust_score: number;
+  trust_history: TrustChange[];
+}
+
+// ─── Search ──────────────────────────────────────────────
+
+export interface SearchConfig {
+  backend: "auto" | "qmd" | "orama" | "builtin";
+  qmd_index: string;
+  auto_reindex: boolean;
+  reindex_debounce_ms: number;
+}
+
+export interface SearchResult {
+  id: string;
+  content: string;
+  source: string;
+  score: number;
+  component?: string;
+}
+
+// ─── Snapshot ─────────────────────────────────────────────
+
+export interface SnapshotTask {
+  description: string;
+  status: "active" | "blocked" | "waiting";
+  priority?: "high" | "medium" | "low";
+  blockers?: string[];
+}
+
+export interface Snapshot {
+  updated_at: string;
+  updated_by?: string;
+  current_focus: string;
+  active_tasks: SnapshotTask[];
+  blockers: string[];
+  recent_decisions: string[];
+  context_notes: string;
+  session_meta?: {
+    compaction_count?: number;
+    started_at?: string;
+  };
 }
 
 // ─── PostHook ─────────────────────────────────────────────
@@ -157,7 +310,11 @@ export type HookEvent =
   | "system.execute"
   | "system.configure"
   | "sync.workspace"
-  | "onboarding.complete";
+  | "onboarding.complete"
+  | "scratch.write"
+  | "scratch.promote"
+  | "snapshot.save"
+  | "relationship.update";
 
 export interface HookContext {
   event: HookEvent;

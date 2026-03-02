@@ -13,6 +13,7 @@ import { paths } from "../utils/paths.js";
 import { readMarkdown, writeMarkdown, readYaml, writeYaml } from "../utils/yaml.js";
 import { triggerHook } from "./posthook.js";
 import { updateIndexEntry, formatIndexDate } from "./index.js";
+import { updateAccessLog } from "./decay.js";
 import type { ComponentType, ChangelogEntry } from "../types.js";
 
 const loadedComponents: Set<string> = new Set();
@@ -93,6 +94,13 @@ export async function loadComponent(
 
   loadedComponents.add(key);
 
+  // Track access for memory decay temperature calculation
+  try {
+    await updateAccessLog(`component:${key}`);
+  } catch {
+    // Access log failure is non-fatal
+  }
+
   await triggerHook("component.load", {
     scope: key,
     summary: `loaded component: ${key}`,
@@ -136,3 +144,38 @@ export async function updateSummary(key: string, content: string): Promise<void>
 export function getLoadedComponents(): string[] {
   return [...loadedComponents];
 }
+
+/**
+ * Mark a component summary as verified — resets confidence to "high".
+ */
+export async function verifySummary(
+  key: string
+): Promise<{ success: boolean; message: string }> {
+  const [type, ...rest] = key.split("/");
+  const name = rest.join("/");
+  const summaryPath = paths.componentSummary(type, name);
+
+  const content = await readMarkdown(summaryPath);
+  if (!content) {
+    return { success: false, message: `Summary not found for ${key}` };
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const frontmatter = `---\nlast_verified: "${today}"\nconfidence: high\nverified_by: agent\n---\n`;
+
+  // Replace existing frontmatter or prepend
+  const stripped = content.replace(/^---\n[\s\S]*?\n---\n/, "");
+  await writeMarkdown(summaryPath, frontmatter + stripped);
+
+  const dateStr = formatIndexDate();
+  const tag = TYPE_TAG_MAP[type as ComponentType] ?? "P";
+  await updateIndexEntry(tag, name, `★ active | ⟳${dateStr}`);
+
+  await triggerHook("summary.update", {
+    scope: key,
+    summary: `summary verified: ${key}`,
+  });
+
+  return { success: true, message: "Summary verified" };
+}
+

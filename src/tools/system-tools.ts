@@ -13,6 +13,7 @@ import {
   getSystemState,
 } from "../core/system.js";
 import { updateConfig, getConfigValue } from "../core/config.js";
+import { getLibrarianStatus } from "../core/librarian.js";
 
 export function registerSystemTools(server: McpServer): void {
   server.tool(
@@ -91,6 +92,30 @@ export function registerSystemTools(server: McpServer): void {
             isError: true,
           };
         }
+
+        // Librarian status includes safe_watermark and digest_coverage
+        if (name === "librarian") {
+          const libStatus = await getLibrarianStatus();
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    name,
+                    ...state,
+                    safe_watermark: libStatus.state.safe_watermark ?? null,
+                    digest_coverage: libStatus.state.digest_coverage ?? {},
+                    unprocessed_components: libStatus.unprocessed_components,
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+          };
+        }
+
         return {
           content: [
             {

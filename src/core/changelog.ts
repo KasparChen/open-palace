@@ -11,7 +11,10 @@ import { paths } from "../utils/paths.js";
 import { readYaml, appendYamlEntry } from "../utils/yaml.js";
 import { generateId, isoNow, yearMonth } from "../utils/id.js";
 import { triggerHook } from "./posthook.js";
-import type { ChangelogEntry } from "../types.js";
+import { getConfig } from "./config.js";
+import { validateWrite } from "./validation.js";
+import { updateAccessLog } from "./decay.js";
+import type { ChangelogEntry, ValidationResult } from "../types.js";
 
 export interface RecordInput {
   scope: string;
@@ -24,9 +27,12 @@ export interface RecordInput {
   alternatives?: { option: string; rejected_because: string }[];
   summary: string;
   details?: string;
+  validate?: boolean;
 }
 
-export async function recordChangelog(input: RecordInput): Promise<ChangelogEntry> {
+export async function recordChangelog(
+  input: RecordInput
+): Promise<ChangelogEntry & { validation?: ValidationResult }> {
   const prefix = input.type === "operation" ? "op" : "dec";
   const entry: ChangelogEntry = {
     id: generateId(prefix),
@@ -42,6 +48,38 @@ export async function recordChangelog(input: RecordInput): Promise<ChangelogEntr
     summary: input.summary,
     details: input.details,
   };
+
+  // Determine if validation should run
+  let shouldValidate = input.validate ?? false;
+  if (!shouldValidate) {
+    try {
+      const cfg = await getConfig();
+      if (cfg.validation?.enabled && cfg.validation.auto_validate_decisions && input.type === "decision") {
+        shouldValidate = true;
+      }
+    } catch {
+      // Config read failure is non-fatal for validation
+    }
+  }
+
+  // Run pre-write validation if requested
+  let validationResult: ValidationResult | undefined;
+  if (shouldValidate) {
+    try {
+      const content = `${input.summary}${input.decision ? ` — ${input.decision}` : ""}${input.rationale ? ` (${input.rationale})` : ""}`;
+      validationResult = await validateWrite({
+        scope: input.scope,
+        content,
+        type: "changelog",
+      });
+
+      if (!validationResult.passed && validationResult.risks.some((r) => r.severity === "error")) {
+        return { ...entry, validation: validationResult };
+      }
+    } catch {
+      // Validation failure is non-fatal — proceed with write
+    }
+  }
 
   // Write to component-level changelog if scope maps to a component
   const componentPath = resolveComponentChangelog(input.scope);
@@ -59,6 +97,9 @@ export async function recordChangelog(input: RecordInput): Promise<ChangelogEntr
     entry_id: entry.id,
   });
 
+  if (validationResult) {
+    return { ...entry, validation: validationResult };
+  }
   return entry;
 }
 
@@ -107,6 +148,15 @@ export async function queryChangelog(input: QueryInput): Promise<ChangelogEntry[
 
   if (input.limit) {
     entries = entries.slice(0, input.limit);
+  }
+
+  // Track access for memory decay temperature calculation
+  try {
+    for (const entry of entries) {
+      await updateAccessLog(`entry:${entry.id}`);
+    }
+  } catch {
+    // Access log failure is non-fatal
   }
 
   return entries;

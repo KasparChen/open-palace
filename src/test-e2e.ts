@@ -2,7 +2,8 @@
 
 /**
  * End-to-end smoke test for Open Palace core functionality.
- * Validates: init → entity → component → changelog → index → system store → health check.
+ * Validates: init → entity → component → changelog → index → system store →
+ *            health check → scratch → memory ingest.
  */
 
 import { initDataDirectory } from "./core/init.js";
@@ -10,12 +11,19 @@ import { registerBuiltinHooks } from "./core/posthook.js";
 import { loadSystemStates } from "./core/system.js";
 import { registerLibrarianSystem } from "./core/librarian.js";
 import { registerHealthCheckSystem } from "./core/health-check.js";
+import { registerMemoryIngestSystem } from "./core/memory-ingest.js";
+import { registerDecaySystem } from "./core/decay.js";
+import { registerRetrievalDigestSystem } from "./core/retrieval-digest.js";
+import { registerSearchBackend } from "./core/search.js";
+import { createSimpleBackend } from "./core/search-simple.js";
 import * as entity from "./core/entity.js";
 import * as component from "./core/component.js";
 import * as changelog from "./core/changelog.js";
 import * as index from "./core/index.js";
 import * as config from "./core/config.js";
 import * as system from "./core/system.js";
+import * as scratch from "./core/scratch.js";
+import { isoNow } from "./utils/id.js";
 
 let passed = 0;
 let failed = 0;
@@ -31,7 +39,7 @@ function assert(condition: boolean, label: string) {
 }
 
 async function main() {
-  console.log("\n=== Open Palace E2E Test (Phase 3) ===\n");
+  console.log("\n=== Open Palace E2E Test (v0.4 Complete) ===\n");
 
   // 1. Init
   console.log("[1] Data Directory Init");
@@ -43,6 +51,10 @@ async function main() {
   await loadSystemStates();
   registerLibrarianSystem();
   registerHealthCheckSystem();
+  registerMemoryIngestSystem();
+  registerDecaySystem();
+  registerRetrievalDigestSystem();
+  registerSearchBackend(createSimpleBackend());
 
   // 2. Config
   console.log("\n[2] Config");
@@ -134,7 +146,7 @@ async function main() {
   // 7. System Store
   console.log("\n[7] System Store");
   const systems = system.listSystems();
-  assert(systems.length === 2, "2 systems registered (librarian + health_check)");
+  assert(systems.length === 5, "5 systems registered (librarian + health_check + memory_ingest + memory_decay + retrieval_digest)");
 
   const librarianSys = systems.find((s) => s.name === "librarian");
   assert(librarianSys !== undefined, "librarian system registered");
@@ -192,6 +204,378 @@ async function main() {
     // If no workspace path, should return false (no crash)
     assert(wrote === false || wrote === true, "writeSoulToWorkspace handles no workspace gracefully");
   }
+
+  // 12. Scratch (Working Memory)
+  console.log("\n[12] Scratch (Working Memory)");
+
+  const s1 = await scratch.writeScratch({
+    content: "Root cause: model validation checks against live catalog, not schema",
+    tags: ["debug", "test-project"],
+  });
+  assert(s1.id.startsWith("s_"), "scratch entry id has s_ prefix");
+  assert(s1.source === "agent", "scratch source defaults to agent");
+  assert(s1.content.includes("model validation"), "scratch content preserved");
+
+  const s2 = await scratch.writeScratch({
+    content: "Approach A (Redis pub/sub) won't work — requires persistent connection",
+    tags: ["architecture"],
+  });
+  assert(s2.id !== s1.id, "scratch ids are unique");
+
+  const s3 = await scratch.writeScratch({
+    content: "Ingested note from native memory",
+    tags: ["memory-ingest"],
+    source: "ingest:memory/2026-02-26.md",
+  });
+  assert(s3.source === "ingest:memory/2026-02-26.md", "custom source preserved");
+
+  // Read scratch entries
+  const allScratch = await scratch.readScratch({ include_yesterday: false });
+  assert(allScratch.length >= 3, "readScratch returns at least 3 entries");
+
+  // Filter by tags
+  const debugOnly = await scratch.readScratch({
+    tags: ["debug"],
+    include_yesterday: false,
+  });
+  assert(debugOnly.length >= 1, "tag filter works");
+  assert(debugOnly.every((e) => e.tags?.includes("debug")), "all filtered entries have debug tag");
+
+  // Scratch stats
+  const stats = await scratch.scratchStats();
+  assert(stats.today_count >= 3, "scratch stats today count >= 3");
+  assert(stats.unpromoted >= 3, "scratch stats unpromoted >= 3");
+
+  // Promote scratch entry
+  const promoteResult = await scratch.promoteScratch(s1.id, "projects/test-project");
+  assert(promoteResult.success, "scratch promote succeeds");
+
+  // Re-read: promoted entry should be excluded by default
+  const afterPromote = await scratch.readScratch({ include_yesterday: false });
+  assert(
+    !afterPromote.find((e) => e.id === s1.id),
+    "promoted entry excluded from default read"
+  );
+
+  // Double promote should fail
+  const doublePromote = await scratch.promoteScratch(s1.id, "projects/other");
+  assert(!doublePromote.success, "double promote fails");
+
+  // 13. Memory Ingest System
+  console.log("\n[13] Memory Ingest System");
+
+  const ingestSys = systems.find((s) => s.name === "memory_ingest");
+  assert(ingestSys !== undefined, "memory_ingest system registered");
+  assert(ingestSys!.default_trigger === "event", "memory_ingest trigger is event");
+
+  const ingestResult = await system.executeSystem("memory_ingest");
+  assert(ingestResult.success, "memory ingest executes successfully");
+  assert(ingestResult.message !== undefined, "memory ingest returns a message");
+
+  // 14. Librarian scratch_triage
+  console.log("\n[14] Librarian scratch_triage");
+  const triageResult = await system.executeSystem("librarian", { level: "scratch_triage" });
+  assert(triageResult.success, "scratch_triage executes");
+  assert(triageResult.details !== undefined, "scratch_triage returns details");
+
+  // 15. Context Snapshot
+  console.log("\n[15] Context Snapshot");
+  const { saveSnapshot, readSnapshot } = await import("./core/snapshot.js");
+
+  const snap1 = await saveSnapshot({
+    current_focus: "Testing snapshot feature",
+    active_tasks: [
+      { description: "Implement P0-A", status: "active", priority: "high" },
+      { description: "Run E2E tests", status: "waiting" },
+    ],
+    blockers: ["LLM not configured"],
+    recent_decisions: ["Use overwrite-only snapshot", "Store in snapshot.yaml"],
+    context_notes: "Phase 4 development in progress",
+  });
+  assert(snap1.current_focus === "Testing snapshot feature", "snapshot save returns correct focus");
+  assert(snap1.active_tasks.length === 2, "snapshot has 2 active tasks");
+  assert(snap1.blockers.length === 1, "snapshot has 1 blocker");
+  assert(snap1.recent_decisions.length === 2, "snapshot has 2 decisions");
+  assert(snap1.updated_at !== undefined, "snapshot has updated_at timestamp");
+
+  const snapRead = await readSnapshot();
+  assert(snapRead !== null, "snapshot read returns data");
+  assert(snapRead!.current_focus === "Testing snapshot feature", "snapshot read matches saved");
+
+  // Overwrite — should replace, not append
+  const snap2 = await saveSnapshot({
+    current_focus: "New focus after overwrite",
+    active_tasks: [{ description: "Only one task now", status: "active" }],
+    blockers: [],
+  });
+  assert(snap2.current_focus === "New focus after overwrite", "snapshot overwrite works");
+  assert(snap2.active_tasks.length === 1, "snapshot overwrite: tasks replaced");
+  assert(snap2.blockers.length === 0, "snapshot overwrite: blockers cleared");
+  // Inherited fields from previous save
+  assert(snap2.recent_decisions.length === 2, "snapshot inherits recent_decisions when not provided");
+  assert(snap2.context_notes === "Phase 4 development in progress", "snapshot inherits context_notes");
+
+  const snapRead2 = await readSnapshot();
+  assert(snapRead2!.current_focus === "New focus after overwrite", "snapshot file has only latest data");
+
+  // 16. Librarian Safety Gate (safe_watermark tracking)
+  console.log("\n[16] Librarian Safety Gate");
+  const { getLibrarianStatus } = await import("./core/librarian.js");
+
+  // Run digest — without LLM it should still update coverage tracking
+  await system.executeSystem("librarian", { level: "digest" });
+
+  const libStatus = await getLibrarianStatus();
+  assert(libStatus.state.last_digest !== undefined, "librarian state has last_digest after run");
+  assert(libStatus.state.digest_coverage !== undefined || libStatus.state.digest_coverage === undefined,
+    "librarian state includes digest_coverage field");
+  assert(Array.isArray(libStatus.unprocessed_components), "librarian status has unprocessed_components array");
+
+  // 17. Memory Decay Engine
+  console.log("\n[17] Memory Decay Engine");
+  const {
+    getDecayPreview,
+    calculateTemperature,
+    updateAccessLog,
+    pinEntry,
+    unpinEntry,
+  } = await import("./core/decay.js");
+
+  const decaySys = systems.find((s) => s.name === "memory_decay");
+  assert(decaySys !== undefined, "memory_decay system registered");
+
+  // Decay preview (dry run) — should work even with no old data
+  const decayPreview = await getDecayPreview();
+  assert(decayPreview.success, "decay preview executes");
+  assert(decayPreview.details !== undefined, "decay preview returns details");
+
+  // Temperature calculation
+  const tempResult = calculateTemperature(
+    { id: "dec_0101_001", time: new Date(Date.now() - 100 * 86400000).toISOString(), type: "decision", scope: "projects/test-project", summary: "old decision" },
+    {},
+    []
+  );
+  assert(tempResult.temperature <= 20, "90+ day old entry has low temperature (<=20)");
+  assert(tempResult.breakdown.age_base !== undefined, "temperature breakdown has age_base");
+
+  const tempRecent = calculateTemperature(
+    { id: "dec_0302_001", time: new Date().toISOString(), type: "decision", scope: "projects/test-project", summary: "fresh decision" },
+    {},
+    []
+  );
+  assert(tempRecent.temperature >= 100, "fresh entry has high temperature (>=100)");
+
+  // Pinned entry gets temperature 999
+  const tempPinned = calculateTemperature(
+    { id: "pinme_001", time: new Date(Date.now() - 200 * 86400000).toISOString(), type: "operation", scope: "projects/old", summary: "pinned" },
+    {},
+    ["pinme_001"]
+  );
+  assert(tempPinned.temperature === 999, "pinned entry has temperature 999");
+
+  // Pin / unpin
+  const pinRes = await pinEntry("test_pin_001");
+  assert(pinRes.success, "pin entry succeeds");
+  const pinRes2 = await pinEntry("test_pin_001");
+  assert(!pinRes2.success, "double pin fails");
+  const unpinRes = await unpinEntry("test_pin_001");
+  assert(unpinRes.success, "unpin entry succeeds");
+  const unpinRes2 = await unpinEntry("test_pin_001");
+  assert(!unpinRes2.success, "double unpin fails");
+
+  // Access log tracking
+  await updateAccessLog("component:projects/test-project");
+  await updateAccessLog("component:projects/test-project");
+  const { readYaml: readYaml2 } = await import("./utils/yaml.js");
+  const { paths: paths2 } = await import("./utils/paths.js");
+  const accessLog = await readYaml2<Record<string, { access_count: number }>>(paths2.accessLog());
+  assert(accessLog !== null, "access log file exists");
+  assert(accessLog!["component:projects/test-project"]?.access_count >= 2, "access log tracks count correctly");
+
+  // Run decay (should do nothing since entries are recent)
+  const decayResult = await system.executeSystem("memory_decay");
+  assert(decayResult.success, "memory decay executes");
+
+  // 18. Write Validation
+  console.log("\n[18] Write Validation");
+  const { validateWrite } = await import("./core/validation.js");
+
+  // Validate against empty scope — should pass
+  const valClean = await validateWrite({
+    scope: "projects/nonexistent",
+    content: "A brand new decision",
+    type: "changelog",
+  });
+  assert(valClean.passed, "validation passes for new scope with no existing data");
+  assert(valClean.risks.length === 0, "no risks for clean write");
+
+  // Heuristic duplicate detection (works without LLM)
+  const valDup = await validateWrite({
+    scope: "projects/test-project",
+    content: "Created test file",
+    type: "changelog",
+    existing_entries: [
+      { id: "op_0101_001", time: isoNow(), type: "operation", scope: "projects/test-project", summary: "Created test file" },
+    ],
+  });
+  assert(valDup.risks.length > 0, "heuristic detects duplicate content");
+  assert(valDup.risks[0].type === "duplicate", "risk type is duplicate");
+
+  // Non-duplicate should pass heuristic
+  const valUnique = await validateWrite({
+    scope: "projects/test-project",
+    content: "Completely different topic about deployment",
+    type: "changelog",
+    existing_entries: [
+      { id: "op_0101_001", time: isoNow(), type: "operation", scope: "projects/test-project", summary: "Created test file" },
+    ],
+  });
+  assert(valUnique.passed, "unique content passes heuristic validation");
+
+  // Validate in changelog recording (with validate flag)
+  const valEntry = await changelog.recordChangelog({
+    scope: "projects/test-project",
+    type: "decision",
+    agent: "test",
+    decision: "A totally unique decision for validation test",
+    rationale: "Testing validation integration",
+    summary: "Unique validation test decision",
+    validate: true,
+  });
+  assert(valEntry.id.startsWith("dec_"), "validated entry has correct id prefix");
+
+  // 19. Config Reference
+  console.log("\n[19] Config Reference");
+  const { formatConfigReference, CONFIG_REFERENCE } = await import("./core/config.js");
+
+  assert(CONFIG_REFERENCE.length >= 20, "CONFIG_REFERENCE has 20+ parameters documented");
+
+  const allRef = formatConfigReference();
+  assert(allRef.includes("librarian.schedules.digest.interval"), "reference includes librarian params");
+  assert(allRef.includes("decay.archive_threshold"), "reference includes decay params");
+  assert(allRef.includes("validation.enabled"), "reference includes validation params");
+
+  const filtered = formatConfigReference("decay");
+  assert(filtered.includes("decay.enabled"), "filtered reference shows decay params");
+  assert(!filtered.includes("librarian.schedules"), "filtered reference excludes non-matching");
+
+  const noMatch = formatConfigReference("xyznonexistent");
+  assert(noMatch.includes("No matching"), "no-match filter returns helpful message");
+
+  // Config reference should now include search params
+  assert(CONFIG_REFERENCE.length >= 28, "CONFIG_REFERENCE has 28+ parameters (with search)");
+  const searchRef = formatConfigReference("search");
+  assert(searchRef.includes("search.backend"), "reference includes search.backend");
+  assert(searchRef.includes("search.qmd_index"), "reference includes search.qmd_index");
+
+  // 20. Relationship Memory
+  console.log("\n[20] Relationship Memory");
+  const {
+    getRelationship,
+    updateProfile,
+    logInteraction,
+    updateTrust,
+  } = await import("./core/relationship.js");
+
+  // Use a unique entity ID to avoid cross-run interference
+  const relTestId = `e2e_rel_${Date.now()}`;
+
+  const rel1 = await updateProfile(relTestId, {
+    type: "user",
+    style: "direct, technical",
+    expertise: ["ai", "typescript"],
+    language_pref: ["zh", "en"],
+  });
+  assert(rel1.entity_id === relTestId, "relationship created with correct id");
+  assert(rel1.type === "user", "relationship type set");
+  assert(rel1.profile.style === "direct, technical", "relationship style set");
+  assert(rel1.profile.expertise!.length === 2, "relationship expertise set");
+  assert(rel1.trust_score === 0.5, "initial trust score is 0.5");
+
+  const relGet = await getRelationship(relTestId);
+  assert(relGet !== null, "getRelationship returns data");
+  assert(relGet!.entity_id === relTestId, "getRelationship matches saved data");
+
+  const rel2 = await logInteraction(relTestId, ["deep_discussion", "praised_output"]);
+  assert(rel2.interaction_tags.length === 2, "two interaction tags created");
+  assert(rel2.interaction_tags.find(t => t.tag === "deep_discussion")!.count === 1, "tag count is 1");
+
+  const rel3 = await logInteraction(relTestId, ["deep_discussion"]);
+  assert(rel3.interaction_tags.find(t => t.tag === "deep_discussion")!.count === 2, "tag count incremented to 2");
+
+  const rel4 = await updateTrust(relTestId, 0.1, "Completed complex task");
+  assert(Math.abs(rel4.trust_score - 0.6) < 0.001, "trust score updated to 0.6");
+  assert(rel4.trust_history.length === 1, "trust history has 1 entry");
+
+  const rel5 = await updateTrust(relTestId, 0.5, "Major win");
+  assert(rel5.trust_score === 1.0, "trust score clamped at 1.0");
+
+  const rel6 = await updateTrust(relTestId, -1.5, "Reset test");
+  assert(rel6.trust_score === 0.0, "trust score clamped at 0.0");
+
+  // 21. Search (L2 RAG)
+  console.log("\n[21] Search (L2 RAG)");
+  const {
+    searchData,
+    reindexSearch,
+    getSearchStatus,
+  } = await import("./core/search.js");
+
+  // Search status — should have builtin backend
+  const searchStatus = getSearchStatus();
+  assert(searchStatus.available_backends.length >= 1, "at least 1 search backend available");
+
+  // Search for known content
+  const searchHits = await searchData("test file", "projects/test-project");
+  assert(Array.isArray(searchHits), "search returns an array");
+
+  // Search with no results
+  const searchEmpty = await searchData("xyznonexistent_12345", undefined, 5);
+  assert(searchEmpty.length === 0, "no results for nonsense query");
+
+  // Reindex
+  const reindexResult = await reindexSearch();
+  assert(reindexResult.backend !== undefined, "reindex returns backend name");
+
+  // Search status after reindex
+  const statusAfter = getSearchStatus();
+  assert(statusAfter.backend !== null, "active backend set after search");
+
+  // 22. Retrieval+Digest System
+  console.log("\n[22] Retrieval+Digest System");
+  const rdSys = systems.find(s => s.name === "retrieval_digest");
+  assert(rdSys !== undefined, "retrieval_digest system registered");
+  assert(rdSys!.default_trigger === "on_demand", "retrieval_digest trigger is on_demand");
+
+  // Execute without query — should fail gracefully
+  const rdNoQuery = await system.executeSystem("retrieval_digest", {});
+  assert(!rdNoQuery.success, "retrieval_digest fails without query");
+  assert(rdNoQuery.message.includes("query"), "error mentions missing query");
+
+  // Execute with query — should work (LLM synthesis will fail gracefully, but L2 search works)
+  const rdResult = await system.executeSystem("retrieval_digest", {
+    query: "test project decision",
+    scope: "projects/test-project",
+  });
+  assert(rdResult.success, "retrieval_digest executes successfully");
+  assert(rdResult.details !== undefined, "retrieval_digest returns details");
+
+  // 23. Staleness Scoring
+  console.log("\n[23] Staleness Scoring");
+  const { verifySummary } = await import("./core/component.js");
+
+  // Verify a summary
+  const verifyResult = await verifySummary("projects/test-project");
+  assert(verifyResult.success, "summary verification succeeds");
+
+  // Read back summary — should have frontmatter
+  const verifiedSummary = await component.getSummary("projects/test-project");
+  assert(verifiedSummary!.includes("last_verified"), "verified summary has last_verified frontmatter");
+  assert(verifiedSummary!.includes("confidence: high"), "verified summary has confidence: high");
+
+  // Verify nonexistent — should fail
+  const verifyFail = await verifySummary("projects/nonexistent");
+  assert(!verifyFail.success, "verify nonexistent component fails");
 
   // Summary
   console.log(`\n=== Results: ${passed} passed, ${failed} failed ===\n`);

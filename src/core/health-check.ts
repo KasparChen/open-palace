@@ -235,7 +235,35 @@ async function runHealthCheck(): Promise<SystemRunResult> {
     });
   }
 
-  // 5. Config validation
+  // 5. Staleness scoring (knowledge freshness)
+  for (const comp of actualComponents) {
+    const [type, key] = comp.split("/");
+    const summaryContent = await readMarkdown(paths.componentSummary(type, key));
+    if (!summaryContent) continue;
+
+    // Parse frontmatter for last_verified
+    const fmMatch = summaryContent.match(/^---\n([\s\S]*?)\n---/);
+    if (fmMatch) {
+      const fmText = fmMatch[1];
+      const verifiedMatch = fmText.match(/last_verified:\s*"?(\d{4}-\d{2}-\d{2})"?/);
+      if (verifiedMatch) {
+        const lastVerified = new Date(verifiedMatch[1]);
+        const daysSince = Math.floor(
+          (Date.now() - lastVerified.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        if (daysSince > 60) {
+          issues.push({
+            severity: "warning",
+            category: "stale_knowledge",
+            message: `Component "${comp}" has not been verified for ${daysSince} days (confidence: stale)`,
+            fix_suggestion: `Review and verify with mp_summary_verify("${comp}")`,
+          });
+        }
+      }
+    }
+  }
+
+  // 6. Config validation
   try {
     const config = await readYaml<Record<string, unknown>>(paths.config());
     if (!config) {

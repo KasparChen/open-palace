@@ -22,6 +22,24 @@ const DEFAULT_CONFIG: PalaceConfig = {
     },
     llm: { model: "claude-sonnet" },
   },
+  decay: {
+    enabled: true,
+    archive_threshold: 15,
+    max_age_days: 30,
+    pinned_entries: [],
+    exclude_types: [],
+  },
+  validation: {
+    enabled: true,
+    auto_validate_decisions: true,
+    auto_validate_summaries: false,
+  },
+  search: {
+    backend: "auto",
+    qmd_index: "open-palace",
+    auto_reindex: true,
+    reindex_debounce_ms: 5000,
+  },
 };
 
 const DEFAULT_MASTER_INDEX = `# Open Palace — Master Index (L0)
@@ -50,6 +68,8 @@ const REQUIRED_DIRS = [
   () => `${paths.componentsDir()}/relationships`,
   () => paths.changelogsDir(),
   () => paths.syncDir(),
+  () => paths.scratchDir(),
+  () => paths.archiveDir(),
 ];
 
 export async function initDataDirectory(): Promise<{ created: boolean }> {

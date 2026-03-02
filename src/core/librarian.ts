@@ -15,14 +15,28 @@ import { getMasterIndex } from "./index.js";
 import { gitCommit } from "./git.js";
 import { isoNow, yearMonth } from "../utils/id.js";
 import { registerSystem, type SystemRunResult } from "./system.js";
-import type { ChangelogEntry, ComponentType } from "../types.js";
+import { readScratch } from "./scratch.js";
+import type { ChangelogEntry, ComponentType, ScratchEntry } from "../types.js";
 
 // ─── State tracking ──────────────────────────────────────
+
+interface DigestCoverageEntry {
+  last_processed_entry_id?: string;
+  last_processed_time?: string;
+  entries_processed: number;
+  entries_skipped: number;
+}
+
+interface DigestCoverage {
+  [componentKey: string]: DigestCoverageEntry;
+}
 
 interface LibrarianState {
   last_digest?: string;
   last_synthesis?: string;
   last_review?: string;
+  safe_watermark?: string;
+  digest_coverage?: DigestCoverage;
 }
 
 async function getLibrarianState(): Promise<LibrarianState> {
@@ -34,6 +48,28 @@ async function getLibrarianState(): Promise<LibrarianState> {
 
 async function saveLibrarianState(state: LibrarianState): Promise<void> {
   await writeYaml(`${paths.root()}/librarian-state.yaml`, state);
+}
+
+/**
+ * Get the Librarian's safe watermark — the oldest timestamp up to which
+ * all components have been successfully digested. Memory Decay must NOT
+ * archive entries newer than this watermark.
+ */
+export async function getSafeWatermark(): Promise<string | undefined> {
+  const state = await getLibrarianState();
+  return state.safe_watermark;
+}
+
+export async function getLibrarianStatus(): Promise<{
+  state: LibrarianState;
+  unprocessed_components: string[];
+}> {
+  const state = await getLibrarianState();
+  const coverage = state.digest_coverage ?? {};
+  const unprocessed = Object.entries(coverage)
+    .filter(([, c]) => c.entries_skipped > 0)
+    .map(([key]) => key);
+  return { state, unprocessed_components: unprocessed };
 }
 
 // ─── Component discovery ─────────────────────────────────
@@ -88,6 +124,83 @@ function filterNewEntries(
   return entries.filter((e) => new Date(e.time) > sinceDate);
 }
 
+// ─── Scratch helpers ─────────────────────────────────────
+
+/**
+ * Find scratch entries that match a component by tag or content keyword.
+ */
+function scratchMatchesComponent(
+  entry: ScratchEntry,
+  comp: ComponentInfo
+): boolean {
+  const keywords = [comp.key, comp.fullKey, comp.key.replace(/-/g, " ")];
+  if (entry.tags?.some((t) => keywords.some((k) => t.toLowerCase().includes(k.toLowerCase())))) {
+    return true;
+  }
+  return keywords.some((k) => entry.content.toLowerCase().includes(k.toLowerCase()));
+}
+
+async function getRecentScratchEntries(): Promise<ScratchEntry[]> {
+  return readScratch({
+    include_yesterday: true,
+    exclude_promoted: true,
+    limit: 100,
+  });
+}
+
+// ─── Scratch Triage ──────────────────────────────────────
+
+async function runScratchTriage(): Promise<SystemRunResult> {
+  const startTime = Date.now();
+  const entries = await getRecentScratchEntries();
+
+  if (entries.length === 0) {
+    return {
+      success: true,
+      message: "No unpromoted scratch entries to triage",
+      duration_ms: Date.now() - startTime,
+    };
+  }
+
+  const components = await discoverComponents();
+  const matched: Array<{ entry: ScratchEntry; components: string[] }> = [];
+  const unmatched: ScratchEntry[] = [];
+
+  for (const entry of entries) {
+    const matches = components
+      .filter((c) => scratchMatchesComponent(entry, c))
+      .map((c) => c.fullKey);
+    if (matches.length > 0) {
+      matched.push({ entry, components: matches });
+    } else {
+      unmatched.push(entry);
+    }
+  }
+
+  return {
+    success: true,
+    message: `Triage: ${matched.length} matched, ${unmatched.length} unmatched out of ${entries.length} entries`,
+    details: {
+      matched: matched.map((m) => ({
+        id: m.entry.id,
+        content_preview: m.entry.content.slice(0, 100),
+        tags: m.entry.tags,
+        suggested_scopes: m.components,
+      })),
+      unmatched: unmatched.map((e) => ({
+        id: e.id,
+        content_preview: e.content.slice(0, 100),
+        tags: e.tags,
+      })),
+      suggestion:
+        matched.length > 0
+          ? `Use mp_scratch_promote to assign matched entries to their components.`
+          : undefined,
+    },
+    duration_ms: Date.now() - startTime,
+  };
+}
+
 // ─── Digest (Layer 1) ────────────────────────────────────
 
 const DIGEST_SYSTEM_PROMPT = `You are the Librarian of a knowledge management system called Open Palace.
@@ -123,33 +236,61 @@ async function runDigest(
     };
   }
 
+  // Collect scratch entries for matching against components
+  let allScratchEntries: ScratchEntry[] = [];
+  try {
+    allScratchEntries = await getRecentScratchEntries();
+  } catch {
+    // scratch read failure is non-fatal
+  }
+
+  const coverage: DigestCoverage = { ...(state.digest_coverage ?? {}) };
   let updatedCount = 0;
   const errors: string[] = [];
 
   for (const comp of targetComponents) {
+    const prev: DigestCoverageEntry = coverage[comp.fullKey] ?? {
+      entries_processed: 0,
+      entries_skipped: 0,
+    };
+
     try {
       const changelog = await readYaml<ChangelogEntry[]>(comp.changelogPath);
-      if (!changelog || changelog.length === 0) continue;
+      const newEntries = changelog
+        ? filterNewEntries(changelog, state.last_digest)
+        : [];
 
-      const newEntries = filterNewEntries(changelog, state.last_digest);
-      if (newEntries.length === 0) continue;
+      // Find scratch entries relevant to this component
+      const relevantScratch = allScratchEntries.filter((s) =>
+        scratchMatchesComponent(s, comp)
+      );
+
+      if (newEntries.length === 0 && relevantScratch.length === 0) continue;
 
       const currentSummary =
         (await readMarkdown(comp.summaryPath)) ?? `# ${comp.key}\n\n(empty)\n`;
 
-      const changelogText = newEntries
-        .map((e) => {
-          let line = `- [${e.type}] ${e.summary}`;
-          if (e.decision) line += ` | Decision: ${e.decision}`;
-          if (e.rationale) line += ` | Rationale: ${e.rationale}`;
-          if (e.alternatives?.length) {
-            line += ` | Alternatives: ${e.alternatives
-              .map((a) => `${a.option} (rejected: ${a.rejected_because})`)
-              .join("; ")}`;
-          }
-          return line;
-        })
-        .join("\n");
+      const changelogText = newEntries.length > 0
+        ? newEntries
+            .map((e) => {
+              let line = `- [${e.type}] ${e.summary}`;
+              if (e.decision) line += ` | Decision: ${e.decision}`;
+              if (e.rationale) line += ` | Rationale: ${e.rationale}`;
+              if (e.alternatives?.length) {
+                line += ` | Alternatives: ${e.alternatives
+                  .map((a) => `${a.option} (rejected: ${a.rejected_because})`)
+                  .join("; ")}`;
+              }
+              return line;
+            })
+            .join("\n")
+        : "(No new changelog entries)";
+
+      const scratchText = relevantScratch.length > 0
+        ? relevantScratch
+            .map((s) => `- [scratch ${s.id}] ${s.content}${s.tags ? ` (tags: ${s.tags.join(", ")})` : ""}`)
+            .join("\n")
+        : "";
 
       const userMessage = `## Component: ${comp.fullKey}
 
@@ -158,7 +299,7 @@ ${currentSummary}
 
 ### New Changelog Entries (${newEntries.length} entries since last digest):
 ${changelogText}
-
+${scratchText ? `\n### Related Scratch Notes (working memory, may be informal):\n${scratchText}\n` : ""}
 Please output the updated summary for this component.`;
 
       try {
@@ -169,18 +310,48 @@ Please output the updated summary for this component.`;
         );
         await writeMarkdown(comp.summaryPath, updatedSummary);
         updatedCount++;
+
+        // Update coverage on success
+        const lastEntry = newEntries[newEntries.length - 1];
+        coverage[comp.fullKey] = {
+          last_processed_entry_id: lastEntry?.id ?? prev.last_processed_entry_id,
+          last_processed_time: lastEntry?.time ?? prev.last_processed_time,
+          entries_processed: prev.entries_processed + newEntries.length,
+          entries_skipped: prev.entries_skipped,
+        };
       } catch (llmErr) {
         errors.push(
           `${comp.fullKey} (LLM): ${llmErr instanceof Error ? llmErr.message : String(llmErr)}`
         );
+        // LLM failure: increment skipped, do NOT advance coverage
+        coverage[comp.fullKey] = {
+          ...prev,
+          entries_skipped: prev.entries_skipped + (newEntries.length || 1),
+        };
       }
     } catch (err) {
       errors.push(
         `${comp.fullKey}: ${err instanceof Error ? err.message : String(err)}`
       );
+      coverage[comp.fullKey] = {
+        ...prev,
+        entries_skipped: prev.entries_skipped + 1,
+      };
     }
   }
 
+  // Calculate safe_watermark: the minimum last_processed_time across all components
+  const allProcessedTimes = Object.values(coverage)
+    .map((c) => c.last_processed_time)
+    .filter((t): t is string => !!t);
+
+  if (allProcessedTimes.length > 0) {
+    state.safe_watermark = allProcessedTimes.reduce((min, t) =>
+      t < min ? t : min
+    );
+  }
+
+  state.digest_coverage = coverage;
   state.last_digest = isoNow();
   await saveLibrarianState(state);
 
@@ -432,10 +603,12 @@ export function registerLibrarianSystem(): void {
           return runSynthesis();
         case "review":
           return runReview();
+        case "scratch_triage":
+          return runScratchTriage();
         default:
           return {
             success: false,
-            message: `Unknown librarian level: ${level}. Use: digest, synthesis, review`,
+            message: `Unknown librarian level: ${level}. Use: digest, synthesis, review, scratch_triage`,
             duration_ms: 0,
           };
       }

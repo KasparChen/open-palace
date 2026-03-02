@@ -8,6 +8,7 @@
 import type { HookEvent, HookContext } from "../types.js";
 import { gitCommit } from "./git.js";
 import { isoNow } from "../utils/id.js";
+import { scheduleDebouncedReindex } from "./search.js";
 
 type HookHandler = (ctx: HookContext) => Promise<void>;
 
@@ -45,6 +46,10 @@ export function registerBuiltinHooks(): void {
     "summary.update",
     "component.create",
     "index.update",
+    "scratch.write",
+    "scratch.promote",
+    "snapshot.save",
+    "relationship.update",
   ];
 
   for (const event of autoCommitEvents) {
@@ -52,6 +57,21 @@ export function registerBuiltinHooks(): void {
       const scope = (ctx.payload.scope as string) ?? event;
       const summary = (ctx.payload.summary as string) ?? event;
       await gitCommit(`${scope}: ${summary}`);
+    });
+  }
+
+  // Schedule debounced search reindex after data-changing events
+  const reindexEvents: HookEvent[] = [
+    "changelog.record",
+    "summary.update",
+    "component.create",
+    "scratch.write",
+    "relationship.update",
+  ];
+
+  for (const event of reindexEvents) {
+    registerHook(event, async () => {
+      await scheduleDebouncedReindex();
     });
   }
 }

@@ -47,6 +47,11 @@ export const paths = {
   globalChangelog: (yearMonth: string) =>
     path.join(getDataDir(), "changelogs", `${yearMonth}.yaml`),
 
+  // Scratch (Working Memory)
+  scratchDir: () => path.join(getDataDir(), "scratch"),
+  scratchFile: (date: string) =>
+    path.join(getDataDir(), "scratch", `${date}.yaml`),
+
   // Sync
   syncDir: () => path.join(getDataDir(), "sync"),
   syncHostDir: (host: string) => path.join(getDataDir(), "sync", host),
@@ -55,4 +60,23 @@ export const paths = {
   syncState: (host: string) =>
     path.join(getDataDir(), "sync", host, "sync-state.yaml"),
   workspaceBackupDir: () => path.join(getDataDir(), "sync", "workspace-backup"),
+
+  // Memory Ingest
+  memoryIngestState: () => path.join(getDataDir(), "ingest-state.yaml"),
+
+  // Snapshot
+  snapshot: () => path.join(getDataDir(), "snapshot.yaml"),
+
+  // Relationship profile
+  relationshipProfile: (entityId: string) =>
+    path.join(getDataDir(), "components", "relationships", entityId, "profile.yaml"),
+
+  // Archive (Memory Decay)
+  archiveDir: () => path.join(getDataDir(), "archive"),
+  archiveComponentDir: (type: string, key: string) =>
+    path.join(getDataDir(), "archive", "components", type, key),
+  archiveChangelogsDir: () =>
+    path.join(getDataDir(), "archive", "changelogs"),
+  decayState: () => path.join(getDataDir(), "decay-state.yaml"),
+  accessLog: () => path.join(getDataDir(), "access-log.yaml"),
 };
