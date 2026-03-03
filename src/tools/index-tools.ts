@@ -10,7 +10,7 @@ import * as idx from "../core/index.js";
 export function registerIndexTools(server: McpServer): void {
   server.tool(
     "mp_index_get",
-    "Get the L0 Master Index — global awareness directory (< 500 tokens)",
+    "Get the L0 Master Index — global awareness directory (< 500 tokens). For full session startup (index + snapshot + scratch), use mp_session_start instead.",
     {},
     async () => {
       const content = await idx.getMasterIndex();

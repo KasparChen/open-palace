@@ -18,7 +18,7 @@ import { syncWorkspace, getWorkspacePath } from "../core/sync.js";
 import { gitCommit } from "../core/git.js";
 import { isoNow } from "../utils/id.js";
 
-const CURRENT_VERSION = "0.4.1";
+const CURRENT_VERSION = "0.4.2";
 
 // ---------------------------------------------------------------------------
 // Shared SKILL body (used by both OpenClaw and Cursor)
@@ -41,17 +41,16 @@ Two layers:
 
 ## Session Lifecycle
 
-### 1. Startup — Load Awareness
+### 1. Startup — Load Awareness (ONE call)
 
-At the beginning of every session:
+At the beginning of every session, call:
 
 \`\`\`
-mp_index_get           → L0 Master Index (< 500 tokens, global overview)
-mp_snapshot_read       → Restore working state (if snapshot exists)
-mp_scratch_read        → Recent working notes from previous sessions
+mp_session_start       → Returns L0 Master Index + working state snapshot + recent scratch notes
 \`\`\`
 
-This gives you: what projects/entities exist + what you were working on recently.
+This single call replaces the old 3-step ritual (mp_index_get + mp_snapshot_read + mp_scratch_read).
+Even if you forget, the first time you call ANY Open Palace tool, session context is auto-injected.
 This REPLACES reading memory/*.md files for context recovery.
 
 ### 2. Working — Capture Patterns
@@ -112,6 +111,7 @@ If the session ran long (>1hr or >50k tokens):
 
 | Situation | Tool |
 |-----------|------|
+| **Session start (FIRST action)** | **\`mp_session_start\`** |
 | Mid-work insight, root cause found | \`mp_scratch_write\` |
 | Quick observation during debugging | \`mp_scratch_write\` |
 | Daily log, session notes | \`mp_scratch_write\` (with tags) |
@@ -137,8 +137,11 @@ If \`mp_*\` tool calls fail with connection errors or the MCP server is down:
 
 ## Tool Quick Reference
 
+### Session (START HERE)
+- \`mp_session_start\` — **Load full memory context in one call** (L0 index + snapshot + recent scratch). Call FIRST.
+
 ### Scratch (Working Memory)
-- \`mp_scratch_write content tags?\` — Capture insight immediately
+- \`mp_scratch_write content tags?\` — Capture insight immediately (NEVER write files instead)
 - \`mp_scratch_read date? tags? include_yesterday?\` — Read recent entries
 - \`mp_scratch_promote scratch_id scope\` — Promote entry to a component
 
@@ -147,7 +150,7 @@ If \`mp_*\` tool calls fail with connection errors or the MCP server is down:
 - \`mp_snapshot_read\` — Restore working state after compaction
 
 ### Index (Global Awareness)
-- \`mp_index_get\` — L0 Master Index (all projects/entities at a glance)
+- \`mp_index_get\` — L0 Master Index (or use mp_session_start for full startup)
 - \`mp_index_search query\` — Find matching entries
 
 ### Entity (Agent Identity)
@@ -205,6 +208,7 @@ When you call \`mp_onboarding_status\` and it reports \`update_available\`, run
 
 ## What Happens Automatically
 
+- **Session guard**: First tool call auto-injects L0 index + snapshot (even if you skip mp_session_start)
 - **Startup sync**: Workspace files (SOUL.md, etc.) are diffed and synced
 - **Memory ingest**: Native memory/*.md files are auto-ingested into scratch on startup
 - **PostHooks**: Every write → auto git commit + index update + search reindex
@@ -220,10 +224,9 @@ When you call \`mp_onboarding_status\` and it reports \`update_available\`, run
 const OPENCLAW_SKILL_CONTENT = `---
 name: open-palace
 description: >-
-  Your SOLE memory system. ALL memory operations go through Open Palace tools.
-  Use mp_scratch_write for insights, mp_changelog_record for decisions,
-  mp_index_get for global awareness. Do NOT write to memory/*.md files —
-  use Open Palace tools instead. Native memory/ is only an emergency fallback.
+  Your SOLE memory system. Call mp_session_start FIRST every session.
+  Use mp_scratch_write for insights (NEVER write files), mp_changelog_record
+  for decisions. Session context is auto-injected on first tool call.
 metadata:
   openclaw:
     emoji: "\uD83C\uDFDB\uFE0F"
@@ -236,18 +239,19 @@ const SECTION_END = "<!-- open-palace:end -->";
 
 const TOOLS_MD_SECTION = `
 ${SECTION_START}
-## Open Palace — Your Memory System (42 tools)
+## Open Palace — Your Memory System (43 tools)
 
 Open Palace is your SOLE memory system. ALL memory operations go through these tools.
 Do NOT write to memory/*.md files for memory purposes.
 
+**START HERE:** \`mp_session_start\` — Load full memory context in one call (L0 index + snapshot + scratch)
+
 **Most used tools:**
-- \`mp_scratch_write content tags?\` — **Capture insights immediately** (replaces writing to memory/*.md)
-- \`mp_scratch_read\` — Read recent scratch entries (replaces reading memory/*.md)
-- \`mp_index_get\` — Global project/entity overview (load at session start)
-- \`mp_snapshot_save / mp_snapshot_read\` — Save/restore working state for compaction recovery
+- \`mp_session_start\` — **Call FIRST every session** (loads index + snapshot + recent scratch)
+- \`mp_scratch_write content tags?\` — **Capture insights immediately** (NEVER write to files instead)
 - \`mp_changelog_record\` — Record formal decisions with rationale + alternatives
 - \`mp_component_load <key>\` — Load project details into context
+- \`mp_snapshot_save\` — Save working state before compaction or session end
 - \`mp_raw_search query scope?\` — Search all data (auto-selects QMD/Orama/builtin)
 - \`mp_entity_get_soul <id>\` — Get agent personality for sub-agent spawn
 - \`mp_relationship_get <id>\` — Get user/agent interaction profile + trust
@@ -261,33 +265,30 @@ const AGENTS_MD_SECTION = `
 ${SECTION_START}
 ## Your Memory System (Open Palace)
 
-**Open Palace is your SOLE memory system.** ALL memory operations — capturing insights,
-recording decisions, daily logs, session notes, recalling context — go through Open Palace
-tools. Do NOT write to \`memory/*.md\` or \`MEMORY.md\` for memory purposes.
+**Open Palace is your SOLE memory system.** ALL memory operations go through Open Palace tools.
+Do NOT write to \`memory/*.md\` or \`MEMORY.md\` for memory purposes.
 
-If you write to native memory files anyway, the content is auto-ingested on next startup,
-but you lose tags, searchability, and structure. Always prefer Open Palace tools directly.
+### Session Startup (MANDATORY — do this EVERY session)
+
+After reading SOUL.md and USER.md, load your memory in ONE call:
+
+\`\`\`
+mp_session_start    → Returns L0 index + working state + recent scratch notes
+\`\`\`
+
+Even if you forget, session context is auto-injected on your first tool call.
 
 ### Memory Routing
 
 | What you want to do | Tool |
 |---------------------|------|
+| **Start session (FIRST action)** | **\`mp_session_start\`** |
 | Capture insight, observation, daily log | \`mp_scratch_write\` |
 | Record a formal decision with rationale | \`mp_changelog_record\` |
 | Track a new project or knowledge domain | \`mp_component_create\` |
 | Recall past decisions | \`mp_changelog_query\` |
-| Global awareness at session start | \`mp_index_get\` + \`mp_scratch_read\` |
 | Save state before compaction | \`mp_snapshot_save\` |
 | Search across all memory | \`mp_raw_search\` |
-
-### Session Startup (do this EVERY session)
-
-After reading SOUL.md and USER.md, load your memory:
-1. \`mp_index_get\` → Global awareness: all projects, entities, systems (< 500 tokens)
-2. \`mp_scratch_read\` → Recent working notes from previous sessions
-3. \`mp_snapshot_read\` → Restore working state from last snapshot (if exists)
-
-This REPLACES reading \`memory/*.md\` files for context recovery.
 
 ### During Work — Capture Pattern (CRITICAL)
 
@@ -301,26 +302,18 @@ Trigger conditions:
 - Non-obvious dependency or constraint found → \`mp_scratch_write\`
 - Session getting long (>30 min) → \`mp_scratch_write\` a progress summary
 
-### Before Compaction / Session End
-Save your working state: \`mp_snapshot_save\` with current focus, tasks, and blockers.
-
-### Formal Decisions
-When a real decision is made with alternatives considered, use \`mp_changelog_record\`
-with scope, type="decision", rationale, and rejected alternatives.
-
-### Search & Recall
-- Search all data → \`mp_raw_search query scope?\`
-- Deep query with LLM synthesis → \`mp_system_execute("retrieval_digest", {query})\`
-- Cross-session recall → \`mp_index_search\` → \`mp_component_load\`
+### NEVER
+- NEVER write to memory/*.md, MEMORY.md, or any file to "remember" something
+- NEVER create files as a substitute for \`mp_scratch_write\` or \`mp_changelog_record\`
+- If about to write a file "to remember later" → STOP → \`mp_scratch_write\`
 
 ### Fallback (ONLY when Open Palace is unreachable)
 
-If \`mp_*\` tools return connection errors or the MCP server is down:
-1. Write to \`memory/YYYY-MM-DD.md\` as emergency fallback
-2. Prefix the entry with \`[FALLBACK]\` so you know to migrate it later
-3. When Open Palace is back, these files are auto-ingested on next startup
+If \`mp_*\` tools return connection errors:
+1. Write to \`memory/YYYY-MM-DD.md\` with \`[FALLBACK]\` prefix
+2. These files are auto-ingested when Open Palace returns
 
-See the \`open-palace\` skill for full tool reference and examples.
+See the \`open-palace\` skill for full tool reference.
 ${SECTION_END}
 `;
 
@@ -341,10 +334,7 @@ Replace the numbered steps so that Open Palace is the memory source. The new seq
 
 1. Read SOUL.md — this is who you are
 2. Read USER.md — this is who you're helping
-3. Load memory from Open Palace:
-   - mp_index_get → global awareness (< 500 tokens)
-   - mp_scratch_read → recent working notes
-   - mp_snapshot_read → restore working state (if snapshot exists)
+3. mp_session_start → loads L0 index + working state + recent scratch in one call
 
 Remove the old "read memory/YYYY-MM-DD.md" step entirely.
 Remove any old standalone mcporter command step — it is now covered by step 3.
@@ -364,9 +354,9 @@ Add a replacement note ABOVE the commented-out block:
 ## Memory
 
 All memory operations now go through Open Palace (see "Your Memory System" section above).
+- mp_session_start replaces reading old memory files at session start (one call loads everything)
 - mp_scratch_write replaces memory/*.md for capturing insights and daily logs
 - mp_changelog_record replaces decision logging in memory files
-- mp_index_get + mp_scratch_read replaces reading old memory files at session start
 Native memory/ files are only used as emergency fallback when Open Palace MCP is
 unreachable. If that happens, prefix entries with [FALLBACK] — they will be
 auto-ingested when service returns.
@@ -394,70 +384,37 @@ This marks the migration as complete so you won't be prompted again.
 const CURSOR_SKILL_CONTENT = `---
 name: open-palace
 description: >-
-  Your SOLE memory system. ALL memory operations go through Open Palace tools.
-  Use mp_scratch_write for insights, mp_changelog_record for decisions,
-  mp_index_get for global awareness. NEVER write to files for memory purposes.
+  Your SOLE memory system. Call mp_session_start FIRST every session.
+  Use mp_scratch_write for insights (NEVER write files), mp_changelog_record
+  for decisions. Session context is auto-injected on first tool call.
 ---
 
 ${SKILL_BODY}`;
 
 const CURSOR_RULE_CONTENT = `---
-description: Open Palace — your sole memory system across sessions
+description: Open Palace memory system — call mp_session_start first
 alwaysApply: true
 ---
 
-# Open Palace — Agent Memory Protocol
+# Open Palace Memory Protocol
 
-You have Open Palace connected as an MCP server. It is your SOLE memory system.
-ALL memory operations go through Open Palace tools. Do NOT write to files for
-memory purposes.
+MANDATORY FIRST ACTION: Call \`mp_session_start\` before any work.
+This loads your full memory context (L0 index + snapshot + recent scratch) in one call.
+Even if you skip this, context is auto-injected on your first Open Palace tool call.
 
-## Session Start (do this EVERY session)
+## During Work
+- Insight or discovery → \`mp_scratch_write\` (NEVER write to files)
+- Formal decision with alternatives → \`mp_changelog_record\`
+- Load project details → \`mp_component_load\`
+- Before compaction or session end → \`mp_snapshot_save\`
 
-At the beginning of every session, before starting any work:
-
-1. \`mp_index_get\` → L0 Master Index: all projects, entities, systems (< 500 tokens)
-2. \`mp_scratch_read\` → Recent working notes from previous sessions
-
-This gives you global awareness of what exists and what you were working on.
-
-## During Work — Capture Insights Immediately
-
-**Whenever you discover something important, call \`mp_scratch_write\` right then.**
-Don't wait. Context gets compacted; scratch entries are permanent files.
-
-Trigger conditions:
-- Found a root cause or key insight → \`mp_scratch_write\`
-- An approach failed and you know why → \`mp_scratch_write\`
-- User corrected your understanding → \`mp_scratch_write\`
-- Non-obvious dependency or constraint → \`mp_scratch_write\`
-- Session getting long (>30 min) → \`mp_scratch_write\` a progress summary
-
-## Formal Decisions
-
-When a real decision is made with alternatives considered:
-\`mp_changelog_record\` with scope, type="decision", rationale, and rejected alternatives.
-
-## Project Context
-
-- Load project details: \`mp_component_load("projects/name")\`
-- Recall decisions: \`mp_changelog_query\`
-- Sub-agent personality: \`mp_entity_get_soul("entity_id")\`
-
-## DO NOT (hard rules)
-
-- NEVER write to memory/*.md, MEMORY.md, or any file to "remember" something
+## NEVER
+- NEVER write to memory/*.md, MEMORY.md, SPEC.md, or any file to "remember" something
 - NEVER create files as a substitute for \`mp_scratch_write\` or \`mp_changelog_record\`
-- NEVER re-read old files for context — use \`mp_index_get\` + \`mp_component_load\`
-- If you catch yourself about to write to a file "to remember later" → STOP → \`mp_scratch_write\`
+- If about to write a file "to remember later" → STOP → \`mp_scratch_write\`
 
-## Fallback (ONLY when Open Palace tools are unreachable)
-
-If \`mp_*\` tool calls fail with connection errors:
-1. Write to a file with \`[FALLBACK]\` prefix
-2. These files are auto-ingested when Open Palace returns
-
-See the \`open-palace\` skill for full tool reference and examples.
+## Fallback (ONLY when mp_* tools are unreachable)
+Write to a file with \`[FALLBACK]\` prefix — auto-ingested when Open Palace returns.
 `;
 
 // ---------------------------------------------------------------------------

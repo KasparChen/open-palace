@@ -22,7 +22,7 @@ import path from "node:path";
 export function registerScratchTools(server: McpServer): void {
   server.tool(
     "mp_scratch_write",
-    "Capture an insight, observation, or learning instantly. Zero friction — just content and optional tags. Use this the moment you notice something important during debugging, exploration, or any work. Don't wait until session end.",
+    "Capture an insight NOW — use this INSTEAD of writing to files. Zero friction: just content + optional tags. Call this the moment you discover something important (root cause, failed approach, user correction, non-obvious dependency). NEVER write to memory/*.md or create files to remember things — always use this tool.",
     {
       content: z
         .string()
@@ -61,7 +61,7 @@ export function registerScratchTools(server: McpServer): void {
 
   server.tool(
     "mp_scratch_read",
-    "Read recent scratch entries (today + optionally yesterday). Use at session start to recall working context from previous sessions. Excludes already-promoted entries by default.",
+    "Read recent scratch entries (today + optionally yesterday). Note: mp_session_start already includes recent scratch — use this only if you need filtered or standalone scratch access. Excludes already-promoted entries by default.",
     {
       date: z
         .string()

@@ -23,6 +23,8 @@ import { createQmdBackend } from "./core/search-qmd.js";
 import { createOramaBackend } from "./core/search-orama.js";
 import { createSimpleBackend } from "./core/search-simple.js";
 import { setServerRef } from "./core/llm.js";
+import { getAutoInjectPreamble } from "./core/session.js";
+import { getFullStartupContext } from "./core/session.js";
 
 import { registerEntityTools } from "./tools/entity-tools.js";
 import { registerIndexTools } from "./tools/index-tools.js";
@@ -38,6 +40,40 @@ import { registerValidationTools } from "./tools/validation-tools.js";
 import { registerRelationshipTools } from "./tools/relationship-tools.js";
 import { registerSearchTools } from "./tools/search-tools.js";
 import { registerStalenessTools } from "./tools/staleness-tools.js";
+import { registerSessionTools } from "./tools/session-tools.js";
+
+/**
+ * Wrap server.tool() to auto-inject session context on first tool call.
+ * Every tool handler gets a session guard: if the session hasn't been
+ * initialized yet, the L0 index + snapshot summary is prepended to the
+ * response. This is a code-level guarantee — no prompt instruction needed.
+ */
+function installSessionGuard(server: McpServer): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const originalTool: (...a: any[]) => any = (server.tool as any).bind(server);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (server as any).tool = function (...args: any[]) {
+    const lastIdx = args.length - 1;
+    const originalHandler = args[lastIdx];
+
+    if (typeof originalHandler !== "function") {
+      return originalTool(...args);
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    args[lastIdx] = async (...handlerArgs: any[]) => {
+      const result = await originalHandler(...handlerArgs);
+      const preamble = await getAutoInjectPreamble();
+      if (preamble && result?.content && Array.isArray(result.content)) {
+        result.content.unshift({ type: "text" as const, text: preamble });
+      }
+      return result;
+    };
+
+    return originalTool(...args);
+  };
+}
 
 async function main() {
   // Initialize data directory and git repo
@@ -71,6 +107,12 @@ async function main() {
   // Pass low-level Server ref to LLM module for MCP Sampling support
   setServerRef(server.server);
 
+  // Install session guard BEFORE registering tools so all handlers are wrapped
+  installSessionGuard(server);
+
+  // Register session tool first (mp_session_start appears early in tool list)
+  registerSessionTools(server);
+
   // Register all tool groups
   registerEntityTools(server);
   registerIndexTools(server);
@@ -86,6 +128,43 @@ async function main() {
   registerRelationshipTools(server);
   registerSearchTools(server);
   registerStalenessTools(server);
+
+  // Register MCP Resource: L0 index as auto-loadable resource for supporting hosts
+  server.resource(
+    "Session Startup Context",
+    "palace://startup",
+    {
+      description:
+        "L0 Master Index + current working state snapshot. " +
+        "Auto-load this at session start for full memory awareness.",
+      mimeType: "text/markdown",
+    },
+    async () => {
+      const context = await getFullStartupContext();
+      return {
+        contents: [
+          { uri: "palace://startup", text: context, mimeType: "text/markdown" },
+        ],
+      };
+    }
+  );
+
+  // Register MCP Prompt: session startup prompt template for supporting hosts
+  server.prompt(
+    "session-start",
+    "Load Open Palace memory context for a new session — returns L0 index, snapshot, and recent scratch",
+    async () => ({
+      messages: [
+        {
+          role: "user" as const,
+          content: {
+            type: "text" as const,
+            text: "Load my Open Palace memory context. Call mp_session_start to get the L0 Master Index, working state snapshot, and recent scratch notes.",
+          },
+        },
+      ],
+    })
+  );
 
   // Run memory ingest on startup (lightweight SHA256 diff, non-blocking)
   try {

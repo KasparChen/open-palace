@@ -108,62 +108,29 @@ mkdir -p "$CURSOR_DIR/skills/open-palace"
 
 cat > "$CURSOR_DIR/rules/open-palace.mdc" << 'RULEEOF'
 ---
-description: Open Palace — your sole memory system across sessions
+description: Open Palace memory system — call mp_session_start first
 alwaysApply: true
 ---
 
-# Open Palace — Agent Memory Protocol
+# Open Palace Memory Protocol
 
-You have Open Palace connected as an MCP server. It is your SOLE memory system.
-ALL memory operations go through Open Palace tools. Do NOT write to files for
-memory purposes.
+MANDATORY FIRST ACTION: Call `mp_session_start` before any work.
+This loads your full memory context (L0 index + snapshot + recent scratch) in one call.
+Even if you skip this, context is auto-injected on your first Open Palace tool call.
 
-## Session Start (do this EVERY session)
+## During Work
+- Insight or discovery → `mp_scratch_write` (NEVER write to files)
+- Formal decision with alternatives → `mp_changelog_record`
+- Load project details → `mp_component_load`
+- Before compaction or session end → `mp_snapshot_save`
 
-At the beginning of every session, before starting any work:
-
-1. `mp_index_get` → L0 Master Index: all projects, entities, systems (< 500 tokens)
-2. `mp_scratch_read` → Recent working notes from previous sessions
-
-This gives you global awareness of what exists and what you were working on.
-
-## During Work — Capture Insights Immediately
-
-**Whenever you discover something important, call `mp_scratch_write` right then.**
-Don't wait. Context gets compacted; scratch entries are permanent files.
-
-Trigger conditions:
-- Found a root cause or key insight → `mp_scratch_write`
-- An approach failed and you know why → `mp_scratch_write`
-- User corrected your understanding → `mp_scratch_write`
-- Non-obvious dependency or constraint → `mp_scratch_write`
-- Session getting long (>30 min) → `mp_scratch_write` a progress summary
-
-## Formal Decisions
-
-When a real decision is made with alternatives considered:
-`mp_changelog_record` with scope, type="decision", rationale, and rejected alternatives.
-
-## Project Context
-
-- Load project details: `mp_component_load("projects/name")`
-- Recall decisions: `mp_changelog_query`
-- Sub-agent personality: `mp_entity_get_soul("entity_id")`
-
-## DO NOT (hard rules)
-
-- NEVER write to memory/*.md, MEMORY.md, or any file to "remember" something
+## NEVER
+- NEVER write to memory/*.md, MEMORY.md, SPEC.md, or any file to "remember" something
 - NEVER create files as a substitute for `mp_scratch_write` or `mp_changelog_record`
-- NEVER re-read old files for context — use `mp_index_get` + `mp_component_load`
-- If you catch yourself about to write to a file "to remember later" → STOP → `mp_scratch_write`
+- If about to write a file "to remember later" → STOP → `mp_scratch_write`
 
-## Fallback (ONLY when Open Palace tools are unreachable)
-
-If `mp_*` tool calls fail with connection errors:
-1. Write to a file with `[FALLBACK]` prefix
-2. These files are auto-ingested when Open Palace returns
-
-See the `open-palace` skill for full tool reference and examples.
+## Fallback (ONLY when mp_* tools are unreachable)
+Write to a file with `[FALLBACK]` prefix — auto-ingested when Open Palace returns.
 RULEEOF
 
 info "Wrote rule: $CURSOR_DIR/rules/open-palace.mdc"
@@ -177,14 +144,12 @@ else
 ---
 name: open-palace
 description: >-
-  Persistent cognitive memory system for agents. Provides structured memory
-  (projects, decisions, entities) and zero-friction scratch capture that
-  survives context compaction. Use at EVERY session start for global awareness,
-  during work to capture insights, and for cross-session recall of projects,
-  decisions, and agent identities.
+  Your SOLE memory system. Call mp_session_start FIRST every session.
+  Use mp_scratch_write for insights (NEVER write files), mp_changelog_record
+  for decisions. Session context is auto-injected on first tool call.
 ---
 
-# Open Palace — Structured Memory + Working Scratchpad
+# Open Palace — Your Memory System
 
 Open Palace is your persistent cognitive system delivered as an MCP server.
 Run `mp_onboarding_status` to check setup, then `mp_onboarding_init` to get
@@ -193,10 +158,10 @@ the full skill content with detailed tool reference and behavioral guide.
 ## Quick Start
 
 ```
-mp_index_get        → L0 Master Index (global awareness)
-mp_scratch_read     → Recent working notes
-mp_scratch_write    → Capture insight immediately
+mp_session_start    → Load full memory context (CALL FIRST)
+mp_scratch_write    → Capture insight immediately (NEVER write files)
 mp_changelog_record → Record formal decision
+mp_component_load   → Load project details
 ```
 
 Run `mp_onboarding_init` for the complete setup.

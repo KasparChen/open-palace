@@ -65,7 +65,7 @@ export function registerSnapshotTools(server: McpServer): void {
 
   server.tool(
     "mp_snapshot_read",
-    "Read the current context snapshot. Use at session start or after compaction to instantly restore working state.",
+    "Read the current context snapshot. Use after compaction to restore working state. Note: mp_session_start already includes snapshot data — use this only if you need snapshot alone.",
     {},
     async () => {
       const snapshot = await readSnapshot();

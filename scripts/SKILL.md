@@ -3,7 +3,7 @@ name: open-palace
 description: >-
   Your SOLE memory system. ALL memory operations go through Open Palace tools.
   Use mp_scratch_write for insights, mp_changelog_record for decisions,
-  mp_index_get for global awareness. NEVER write to files for memory purposes.
+  mp_session_start for global awareness. NEVER write to files for memory purposes.
 ---
 
 # Open Palace — Your Memory System
@@ -23,17 +23,16 @@ Two layers:
 
 ## Session Lifecycle
 
-### 1. Startup — Load Awareness
+### 1. Startup — Load Awareness (ONE call)
 
-At the beginning of every session:
+At the beginning of every session, call:
 
 ```
-mp_index_get           → L0 Master Index (< 500 tokens, global overview)
-mp_snapshot_read       → Restore working state (if snapshot exists)
-mp_scratch_read        → Recent working notes from previous sessions
+mp_session_start       → Returns L0 Master Index + working state snapshot + recent scratch notes
 ```
 
-This gives you: what projects/entities exist + what you were working on recently.
+This single call replaces the old 3-step ritual (mp_index_get + mp_snapshot_read + mp_scratch_read).
+Even if you forget, the first time you call ANY Open Palace tool, session context is auto-injected.
 This REPLACES reading memory/*.md files for context recovery.
 
 ### 2. Working — Capture Patterns
@@ -94,6 +93,7 @@ If the session ran long (>1hr or >50k tokens):
 
 | Situation | Tool |
 |-----------|------|
+| **Session start (FIRST action)** | **`mp_session_start`** |
 | Mid-work insight, root cause found | `mp_scratch_write` |
 | Quick observation during debugging | `mp_scratch_write` |
 | Daily log, session notes | `mp_scratch_write` (with tags) |
@@ -119,8 +119,11 @@ If `mp_*` tool calls fail with connection errors or the MCP server is down:
 
 ## Tool Quick Reference
 
+### Session (START HERE)
+- `mp_session_start` — **Load full memory context in one call** (L0 index + snapshot + recent scratch). Call FIRST.
+
 ### Scratch (Working Memory)
-- `mp_scratch_write content tags?` — Capture insight immediately
+- `mp_scratch_write content tags?` — Capture insight immediately (NEVER write files instead)
 - `mp_scratch_read date? tags? include_yesterday?` — Read recent entries
 - `mp_scratch_promote scratch_id scope` — Promote entry to a component
 
@@ -129,7 +132,7 @@ If `mp_*` tool calls fail with connection errors or the MCP server is down:
 - `mp_snapshot_read` — Restore working state after compaction
 
 ### Index (Global Awareness)
-- `mp_index_get` — L0 Master Index (all projects/entities at a glance)
+- `mp_index_get` — L0 Master Index (or use mp_session_start for full startup)
 - `mp_index_search query` — Find matching entries
 
 ### Entity (Agent Identity)
@@ -187,6 +190,7 @@ When you call `mp_onboarding_status` and it reports `update_available`, run
 
 ## What Happens Automatically
 
+- **Session guard**: First tool call auto-injects L0 index + snapshot (even if you skip mp_session_start)
 - **Startup sync**: Workspace files (SOUL.md, etc.) are diffed and synced
 - **Memory ingest**: Native memory/*.md files are auto-ingested into scratch on startup (fallback recovery)
 - **PostHooks**: Every write → auto git commit + index update + search reindex

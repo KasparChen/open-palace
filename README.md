@@ -34,11 +34,13 @@ Current agent frameworks manage cognition through context instructions and markd
 - **Memories only accumulate, never forget.** Without active forgetting, retrieval noise grows with every file. After months of use, finding the right information becomes harder, not easier.
 - **Prompt instructions are unreliable.** Context instructions are advisory. Agents may forget, skip, or misformat them. Critical operations need code-level guarantees.
 
-Open Palace addresses these with deterministic engineering: storage-compute separation, code-level PostHooks, three-level indexing, temperature-based memory decay, write validation, and git-backed version control.
+Open Palace addresses these with deterministic engineering: storage-compute separation, code-level PostHooks, three-level indexing, temperature-based memory decay, write validation, git-backed version control, and automatic session context injection.
 
 ---
 
 ## Highlighted features
+
+**Session Guard — automatic context injection.** The first time an agent calls any Open Palace tool in a session, the L0 Master Index and working state snapshot are automatically prepended to the response. This is a code-level guarantee: even if the agent skips the startup ritual, it gets full awareness on first contact. Combined with `mp_session_start` (a single call that loads index + snapshot + recent scratch), context recovery is both frictionless and unavoidable.
 
 **Temperature-based memory decay.** Memories aren't permanent. Open Palace scores every entry with a temperature based on age, access frequency, and reference count. Cold data gets archived automatically. Pinned entries are protected. The Librarian's safe watermark ensures nothing is archived before it has been digested. The result: retrieval stays precise even after months of accumulated data.
 
@@ -67,7 +69,7 @@ ECS-architecture cognitive system for AI agents. Identity + knowledge + decision
 7. **Temperature-based memory decay.** Active forgetting based on age, access patterns, and reference counts. Cold data is archived, not deleted. Librarian safe watermark prevents data loss. Retrieval stays precise as data grows.
 8. **Three-tier pluggable search.** QMD hybrid search when available, Orama BM25 as embedded fallback, simple scan as last resort. Retrieval+Digest system synthesizes answers from L0/L1/L2 with LLM.
 9. **Relationship memory.** Interaction tags, trust scores, user profiles. The agent learns how to interact with each user over time.
-10. **Code-level guarantees.** PostHook Engine fires git commits, index updates, changelog writes, and search reindex on every write operation. Code pipelines, not prompt instructions.
+10. **Code-level guarantees.** PostHook Engine fires git commits, index updates, changelog writes, and search reindex on every write operation. Session Guard auto-injects startup context on first tool call. Code pipelines, not prompt instructions.
 11. **Fully local, fully portable.** `~/.open-palace/` is a self-contained git repo. YAML + Markdown + Git. No cloud dependency. `cp -r` to any machine.
 
 ---
@@ -90,7 +92,7 @@ Need a new knowledge domain? Create a Component. Need a new automated workflow? 
 
 ## How agents use Open Palace
 
-**Session startup.** The agent calls `mp_index_get`, `mp_snapshot_read`, and `mp_scratch_read`. Now it has the L0 Master Index (< 500 tokens, global awareness), restored working state from the last snapshot, and recent scratch notes. Full context recovery in three calls.
+**Session startup.** The agent calls `mp_session_start` — a single call that returns the L0 Master Index (< 500 tokens, global awareness), restored working state from the last snapshot, and recent scratch notes. Full context recovery in one call. Even if the agent forgets to call this, the Session Guard automatically injects startup context on the first tool call of any session — a code-level guarantee, not a prompt instruction.
 
 **Capturing insights mid-work.** During debugging, exploration, or discussion, the agent calls `mp_scratch_write` the moment it discovers something important. Root cause found? Scratch it. Approach failed? Scratch why. User corrected an assumption? Scratch it. Zero friction — just content and optional tags. These entries survive compaction because they're files, not context.
 
@@ -216,7 +218,7 @@ Then run `mp_onboarding_init` to set up SKILL, TOOLS.md, and AGENTS.md automatic
 Ask the agent to run:
 
 ```
-mp_index_get          → Should return the L0 Master Index
+mp_session_start      → Should return L0 Master Index + snapshot + recent scratch
 mp_system_list        → Should show 6 registered systems
 mp_onboarding_status  → Should report setup status
 ```
@@ -236,13 +238,19 @@ Or let the agent handle it: `mp_onboarding_status` reports when an update is ava
 
 ---
 
-## MCP tools (42 tools)
+## MCP tools (43 tools)
+
+### Session: startup
+
+| Tool | Description |
+|------|-------------|
+| `mp_session_start` | **START HERE.** Load full memory context in one call (L0 index + snapshot + recent scratch). Auto-injected on first tool call even if not called explicitly. |
 
 ### Scratch: working memory
 
 | Tool | Description |
 |------|-------------|
-| `mp_scratch_write` | Capture an insight instantly — just content + optional tags. Zero friction. |
+| `mp_scratch_write` | Capture an insight instantly — just content + optional tags. Zero friction. Use this INSTEAD of writing to files. |
 | `mp_scratch_read` | Read recent scratch entries (today + yesterday). Use at session start. |
 | `mp_scratch_promote` | Promote scratch entry to a component scope |
 
@@ -398,7 +406,7 @@ Every write operation triggers automatic side effects — git commit, index upda
 ```bash
 npm run typecheck    # Type check without emitting
 npm run build        # Compile TypeScript
-npx tsx src/test-e2e.ts   # Run E2E tests (138 assertions)
+npx tsx src/test-e2e.ts   # Run E2E tests (139 assertions)
 ```
 
 ## Roadmap
@@ -410,6 +418,7 @@ npx tsx src/test-e2e.ts   # Run E2E tests (138 assertions)
 - **v0.2** -- Working Memory Layer (Scratch + Memory Ingest + Librarian scratch triage)
 - **v0.3** -- Cursor Integration (rule + skill auto-install, multi-environment onboarding)
 - **v0.4** -- Context Snapshot, Librarian Safety Gate, Memory Decay, Write Validation, Relationship Memory, Three-tier Search (QMD/Orama/builtin), Retrieval+Digest, Staleness Scoring, Centralized Config Reference
+- **v0.4.2** -- Session Guard (auto-inject context on first tool call), `mp_session_start` single startup tool, MCP Resource/Prompt registration, streamlined Cursor Rule
 
 ---
 
