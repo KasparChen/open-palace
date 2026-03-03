@@ -112,6 +112,8 @@ export interface OnboardingConfig {
   completed_at?: string;
   workspace_path?: string;
   version?: string;
+  cursor_dir?: string;
+  migration_applied?: boolean;
 }
 
 export interface WorkspaceSyncConfig {

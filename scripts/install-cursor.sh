@@ -108,21 +108,22 @@ mkdir -p "$CURSOR_DIR/skills/open-palace"
 
 cat > "$CURSOR_DIR/rules/open-palace.mdc" << 'RULEEOF'
 ---
-description: Open Palace cognitive memory system — persistent structured memory across sessions
+description: Open Palace — your sole memory system across sessions
 alwaysApply: true
 ---
 
 # Open Palace — Agent Memory Protocol
 
-You have Open Palace connected as an MCP server. It provides persistent structured memory that survives across sessions and context compaction.
+You have Open Palace connected as an MCP server. It is your SOLE memory system.
+ALL memory operations go through Open Palace tools. Do NOT write to files for
+memory purposes.
 
 ## Session Start (do this EVERY session)
 
 At the beginning of every session, before starting any work:
 
 1. `mp_index_get` → L0 Master Index: all projects, entities, systems (< 500 tokens)
-2. `mp_snapshot_read` → Restore working state (if snapshot exists)
-3. `mp_scratch_read` → Recent working notes from previous sessions
+2. `mp_scratch_read` → Recent working notes from previous sessions
 
 This gives you global awareness of what exists and what you were working on.
 
@@ -148,6 +149,19 @@ When a real decision is made with alternatives considered:
 - Load project details: `mp_component_load("projects/name")`
 - Recall decisions: `mp_changelog_query`
 - Sub-agent personality: `mp_entity_get_soul("entity_id")`
+
+## DO NOT (hard rules)
+
+- NEVER write to memory/*.md, MEMORY.md, or any file to "remember" something
+- NEVER create files as a substitute for `mp_scratch_write` or `mp_changelog_record`
+- NEVER re-read old files for context — use `mp_index_get` + `mp_component_load`
+- If you catch yourself about to write to a file "to remember later" → STOP → `mp_scratch_write`
+
+## Fallback (ONLY when Open Palace tools are unreachable)
+
+If `mp_*` tool calls fail with connection errors:
+1. Write to a file with `[FALLBACK]` prefix
+2. These files are auto-ingested when Open Palace returns
 
 See the `open-palace` skill for full tool reference and examples.
 RULEEOF

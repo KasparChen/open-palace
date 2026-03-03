@@ -18,21 +18,24 @@ import { syncWorkspace, getWorkspacePath } from "../core/sync.js";
 import { gitCommit } from "../core/git.js";
 import { isoNow } from "../utils/id.js";
 
-const CURRENT_VERSION = "0.4.0";
+const CURRENT_VERSION = "0.4.1";
 
 // ---------------------------------------------------------------------------
 // Shared SKILL body (used by both OpenClaw and Cursor)
 // ---------------------------------------------------------------------------
 
-const SKILL_BODY = `# Open Palace — Structured Memory + Working Scratchpad
+const SKILL_BODY = `# Open Palace — Your Memory System
 
-Open Palace is your persistent cognitive system delivered as an MCP server.
+Open Palace is your SOLE memory system, delivered as an MCP server.
+ALL memory operations go through Open Palace tools. Do NOT write to files
+(\`memory/*.md\`, \`MEMORY.md\`, etc.) for memory purposes — use Open Palace tools instead.
 Data lives in \`~/.open-palace/\`, a local git-versioned store you own.
 
 Two layers:
 
-1. **Scratch** (working memory) — zero-friction capture. Drop insights the moment
-   they happen. Survives compaction because it's a file, not context.
+1. **Scratch** (working memory) — zero-friction capture via \`mp_scratch_write\`.
+   Drop insights the moment they happen. Survives compaction because it's a
+   persistent file, not session context.
 2. **Components** (structured memory) — projects, decisions, entities. Organized,
    indexed, version-controlled.
 
@@ -49,23 +52,25 @@ mp_scratch_read        → Recent working notes from previous sessions
 \`\`\`
 
 This gives you: what projects/entities exist + what you were working on recently.
+This REPLACES reading memory/*.md files for context recovery.
 
 ### 2. Working — Capture Patterns
 
-**The single most important behavior: capture insights immediately.**
+**The single most important behavior: capture insights immediately via Open Palace.**
 
 When you notice something important during any work — debugging, exploring,
-discussing — call \`mp_scratch_write\` right then. Don't wait. Don't plan to
-"write it up later." Context will be compacted; scratch entries won't.
+discussing — call \`mp_scratch_write\` right then. Not a file write. Not a
+"mental note". \`mp_scratch_write\`. Context will be compacted; scratch entries won't.
 
 **Trigger conditions for mp_scratch_write:**
 
-- You discovered a root cause → scratch it
-- An approach failed and you know why → scratch it
-- The user corrected your understanding → scratch it
-- You found a non-obvious dependency → scratch it
-- You made a judgment call without formal decision → scratch it
-- The session is getting long (>30min) → scratch a summary so far
+- You discovered a root cause → \`mp_scratch_write\`
+- An approach failed and you know why → \`mp_scratch_write\`
+- The user corrected your understanding → \`mp_scratch_write\`
+- You found a non-obvious dependency → \`mp_scratch_write\`
+- You made a judgment call without formal decision → \`mp_scratch_write\`
+- The session is getting long (>30min) → \`mp_scratch_write\` a summary
+- Daily log or session notes → \`mp_scratch_write\` with tags
 
 **Examples:**
 
@@ -105,22 +110,30 @@ If the session ran long (>1hr or >50k tokens):
 
 ## When to Use What
 
-| Situation | Tool | Why |
-|-----------|------|-----|
-| Mid-work insight, root cause found | \`mp_scratch_write\` | Zero friction, survives compaction |
-| Quick observation during debugging | \`mp_scratch_write\` | Capture first, organize later |
-| Confirmed project decision (with alternatives) | \`mp_changelog_record\` | Formal, traceable, with rationale |
-| New project or knowledge domain | \`mp_component_create\` | Creates indexed structure |
-| "What projects do I have?" | \`mp_index_get\` | Global awareness |
-| "What did we decide about X?" | \`mp_changelog_query\` | Decision traceability |
-| Sub-agent personality for spawn | \`mp_entity_get_soul\` | Consistent identity |
-| Search across all data | \`mp_raw_search\` | L2 search (QMD/Orama/builtin) |
-| Deep query with synthesis | \`mp_system_execute("retrieval_digest")\` | L0→L1→L2 + LLM digest |
-| Preserve state before compaction | \`mp_snapshot_save\` | Instant recovery after compaction |
-| System health / maintenance | \`mp_system_execute("health_check")\` | Data integrity + staleness check |
+| Situation | Tool |
+|-----------|------|
+| Mid-work insight, root cause found | \`mp_scratch_write\` |
+| Quick observation during debugging | \`mp_scratch_write\` |
+| Daily log, session notes | \`mp_scratch_write\` (with tags) |
+| Confirmed project decision (with alternatives) | \`mp_changelog_record\` |
+| New project or knowledge domain | \`mp_component_create\` |
+| "What projects do I have?" | \`mp_index_get\` |
+| "What did we decide about X?" | \`mp_changelog_query\` |
+| Sub-agent personality for spawn | \`mp_entity_get_soul\` |
+| Search across all data | \`mp_raw_search\` |
+| Deep query with synthesis | \`mp_system_execute("retrieval_digest")\` |
+| Preserve state before compaction | \`mp_snapshot_save\` |
+| System health / maintenance | \`mp_system_execute("health_check")\` |
 
-**Key principle:** If in doubt, prefer \`mp_scratch_write\`. It's the lowest-friction
-way to persist anything. Organize later.
+**Key principle:** If in doubt, use \`mp_scratch_write\`. It's the lowest-friction
+way to persist anything. NEVER write to a file to "remember" something.
+
+## Fallback (ONLY when Open Palace is unreachable)
+
+If \`mp_*\` tool calls fail with connection errors or the MCP server is down:
+1. Write to \`memory/YYYY-MM-DD.md\` as emergency fallback
+2. Prefix the entry with \`[FALLBACK]\` so you know to migrate it later
+3. When Open Palace is back, these files are auto-ingested on next startup
 
 ## Tool Quick Reference
 
@@ -207,10 +220,10 @@ When you call \`mp_onboarding_status\` and it reports \`update_available\`, run
 const OPENCLAW_SKILL_CONTENT = `---
 name: open-palace
 description: >-
-  Structured memory + working scratchpad for agents. Load global awareness at
-  session start. Capture insights immediately with mp_scratch_write. Record
-  formal decisions with mp_changelog_record. Memory files from workspace are
-  auto-ingested on startup.
+  Your SOLE memory system. ALL memory operations go through Open Palace tools.
+  Use mp_scratch_write for insights, mp_changelog_record for decisions,
+  mp_index_get for global awareness. Do NOT write to memory/*.md files —
+  use Open Palace tools instead. Native memory/ is only an emergency fallback.
 metadata:
   openclaw:
     emoji: "\uD83C\uDFDB\uFE0F"
@@ -223,13 +236,14 @@ const SECTION_END = "<!-- open-palace:end -->";
 
 const TOOLS_MD_SECTION = `
 ${SECTION_START}
-## Open Palace — Structured Memory System (42 tools)
+## Open Palace — Your Memory System (42 tools)
 
-You have an Open Palace MCP server for persistent cognitive memory across sessions.
+Open Palace is your SOLE memory system. ALL memory operations go through these tools.
+Do NOT write to memory/*.md files for memory purposes.
 
 **Most used tools:**
-- \`mp_scratch_write content tags?\` — **Capture insights immediately** (zero friction, survives compaction)
-- \`mp_scratch_read\` — Read recent scratch entries (yesterday + today)
+- \`mp_scratch_write content tags?\` — **Capture insights immediately** (replaces writing to memory/*.md)
+- \`mp_scratch_read\` — Read recent scratch entries (replaces reading memory/*.md)
 - \`mp_index_get\` — Global project/entity overview (load at session start)
 - \`mp_snapshot_save / mp_snapshot_read\` — Save/restore working state for compaction recovery
 - \`mp_changelog_record\` — Record formal decisions with rationale + alternatives
@@ -245,27 +259,47 @@ ${SECTION_END}
 
 const AGENTS_MD_SECTION = `
 ${SECTION_START}
-## Structured Memory (Open Palace)
+## Your Memory System (Open Palace)
 
-You have Open Palace — a persistent memory system that survives across sessions and
-compaction. It auto-connects via MCP. Use it as your primary memory system.
+**Open Palace is your SOLE memory system.** ALL memory operations — capturing insights,
+recording decisions, daily logs, session notes, recalling context — go through Open Palace
+tools. Do NOT write to \`memory/*.md\` or \`MEMORY.md\` for memory purposes.
 
-### Session Startup (do this every session)
-After reading SOUL/USER/memory, also run:
+If you write to native memory files anyway, the content is auto-ingested on next startup,
+but you lose tags, searchability, and structure. Always prefer Open Palace tools directly.
+
+### Memory Routing
+
+| What you want to do | Tool |
+|---------------------|------|
+| Capture insight, observation, daily log | \`mp_scratch_write\` |
+| Record a formal decision with rationale | \`mp_changelog_record\` |
+| Track a new project or knowledge domain | \`mp_component_create\` |
+| Recall past decisions | \`mp_changelog_query\` |
+| Global awareness at session start | \`mp_index_get\` + \`mp_scratch_read\` |
+| Save state before compaction | \`mp_snapshot_save\` |
+| Search across all memory | \`mp_raw_search\` |
+
+### Session Startup (do this EVERY session)
+
+After reading SOUL.md and USER.md, load your memory:
 1. \`mp_index_get\` → Global awareness: all projects, entities, systems (< 500 tokens)
-2. \`mp_snapshot_read\` → Restore working state from last snapshot (if exists)
-3. \`mp_scratch_read\` → Recent working notes from previous sessions
+2. \`mp_scratch_read\` → Recent working notes from previous sessions
+3. \`mp_snapshot_read\` → Restore working state from last snapshot (if exists)
 
-### During Work — Capture Pattern (IMPORTANT)
+This REPLACES reading \`memory/*.md\` files for context recovery.
+
+### During Work — Capture Pattern (CRITICAL)
+
 **Whenever you discover something important, call \`mp_scratch_write\` immediately.**
-Don't wait until the end. Context gets compacted; scratch entries are permanent.
+Not a file write. Not a "mental note". \`mp_scratch_write\`.
 
 Trigger conditions:
 - Found a root cause or key insight → \`mp_scratch_write\`
 - An approach failed and you know why → \`mp_scratch_write\`
 - User corrected your understanding → \`mp_scratch_write\`
 - Non-obvious dependency or constraint found → \`mp_scratch_write\`
-- Session getting long (>30 min) → \`mp_scratch_write\` a summary
+- Session getting long (>30 min) → \`mp_scratch_write\` a progress summary
 
 ### Before Compaction / Session End
 Save your working state: \`mp_snapshot_save\` with current focus, tasks, and blockers.
@@ -279,12 +313,78 @@ with scope, type="decision", rationale, and rejected alternatives.
 - Deep query with LLM synthesis → \`mp_system_execute("retrieval_digest", {query})\`
 - Cross-session recall → \`mp_index_search\` → \`mp_component_load\`
 
-### Configuration
-All parameters are tunable. Run \`mp_config_reference\` to see the full reference
-(28 parameters with defaults, types, and affected systems).
+### Fallback (ONLY when Open Palace is unreachable)
+
+If \`mp_*\` tools return connection errors or the MCP server is down:
+1. Write to \`memory/YYYY-MM-DD.md\` as emergency fallback
+2. Prefix the entry with \`[FALLBACK]\` so you know to migrate it later
+3. When Open Palace is back, these files are auto-ingested on next startup
 
 See the \`open-palace\` skill for full tool reference and examples.
 ${SECTION_END}
+`;
+
+// ---------------------------------------------------------------------------
+// Migration guidance — returned by mp_onboarding_init for agent-driven rewrite
+// ---------------------------------------------------------------------------
+
+const MIGRATION_GUIDANCE = `
+## AGENTS.md Migration Required
+
+Open Palace is now your SOLE memory system. The native memory/ workflow in AGENTS.md
+must be fully replaced to avoid competing instructions. Read the current AGENTS.md
+first, then make these changes:
+
+### 1. Rewrite the "Every Session" section
+
+Replace the numbered steps so that Open Palace is the memory source. The new sequence:
+
+1. Read SOUL.md — this is who you are
+2. Read USER.md — this is who you're helping
+3. Load memory from Open Palace:
+   - mp_index_get → global awareness (< 500 tokens)
+   - mp_scratch_read → recent working notes
+   - mp_snapshot_read → restore working state (if snapshot exists)
+
+Remove the old "read memory/YYYY-MM-DD.md" step entirely.
+Remove any old standalone mcporter command step — it is now covered by step 3.
+Do NOT add "optionally check memory/" — Open Palace IS the memory system.
+
+### 2. Comment out the "Memory" section
+
+Comment out the ENTIRE "Memory" section using HTML comments <!-- -->, including:
+- "Daily notes: memory/YYYY-MM-DD.md" guidance
+- "Long-term: MEMORY.md" guidance
+- The "MEMORY.md - Your Long-Term Memory" sub-section
+- The "Write It Down - No Mental Notes" sub-section
+- The "Memory Maintenance (During Heartbeats)" sub-section
+
+Add a replacement note ABOVE the commented-out block:
+
+## Memory
+
+All memory operations now go through Open Palace (see "Your Memory System" section above).
+- mp_scratch_write replaces memory/*.md for capturing insights and daily logs
+- mp_changelog_record replaces decision logging in memory files
+- mp_index_get + mp_scratch_read replaces reading old memory files at session start
+Native memory/ files are only used as emergency fallback when Open Palace MCP is
+unreachable. If that happens, prefix entries with [FALLBACK] — they will be
+auto-ingested when service returns.
+
+### 3. Preservation rules
+
+- KEEP any content the user personally added (custom workflows, personal preferences,
+  non-memory-related notes, Heartbeat tasks unrelated to memory maintenance)
+- If unsure whether content is user-written or template, keep it and add a comment
+  asking the user to confirm
+- Use HTML comments <!-- --> for all commented-out content
+- Add "Replaced by Open Palace" annotations to each commented block
+- Preserve overall document structure (headings, safety section, tools section, etc.)
+
+### 4. After migration
+
+Run: mp_config_update path="onboarding.migration_applied" value=true
+This marks the migration as complete so you won't be prompted again.
 `;
 
 // ---------------------------------------------------------------------------
@@ -294,31 +394,30 @@ ${SECTION_END}
 const CURSOR_SKILL_CONTENT = `---
 name: open-palace
 description: >-
-  Persistent cognitive memory system for agents. Provides structured memory
-  (projects, decisions, entities) and zero-friction scratch capture that
-  survives context compaction. Use at EVERY session start for global awareness,
-  during work to capture insights, and for cross-session recall of projects,
-  decisions, and agent identities.
+  Your SOLE memory system. ALL memory operations go through Open Palace tools.
+  Use mp_scratch_write for insights, mp_changelog_record for decisions,
+  mp_index_get for global awareness. NEVER write to files for memory purposes.
 ---
 
 ${SKILL_BODY}`;
 
 const CURSOR_RULE_CONTENT = `---
-description: Open Palace cognitive memory system — persistent structured memory across sessions
+description: Open Palace — your sole memory system across sessions
 alwaysApply: true
 ---
 
 # Open Palace — Agent Memory Protocol
 
-You have Open Palace connected as an MCP server. It provides persistent structured memory that survives across sessions and context compaction.
+You have Open Palace connected as an MCP server. It is your SOLE memory system.
+ALL memory operations go through Open Palace tools. Do NOT write to files for
+memory purposes.
 
 ## Session Start (do this EVERY session)
 
 At the beginning of every session, before starting any work:
 
 1. \`mp_index_get\` → L0 Master Index: all projects, entities, systems (< 500 tokens)
-2. \`mp_snapshot_read\` → Restore working state (if snapshot exists)
-3. \`mp_scratch_read\` → Recent working notes from previous sessions
+2. \`mp_scratch_read\` → Recent working notes from previous sessions
 
 This gives you global awareness of what exists and what you were working on.
 
@@ -344,6 +443,19 @@ When a real decision is made with alternatives considered:
 - Load project details: \`mp_component_load("projects/name")\`
 - Recall decisions: \`mp_changelog_query\`
 - Sub-agent personality: \`mp_entity_get_soul("entity_id")\`
+
+## DO NOT (hard rules)
+
+- NEVER write to memory/*.md, MEMORY.md, or any file to "remember" something
+- NEVER create files as a substitute for \`mp_scratch_write\` or \`mp_changelog_record\`
+- NEVER re-read old files for context — use \`mp_index_get\` + \`mp_component_load\`
+- If you catch yourself about to write to a file "to remember later" → STOP → \`mp_scratch_write\`
+
+## Fallback (ONLY when Open Palace tools are unreachable)
+
+If \`mp_*\` tool calls fail with connection errors:
+1. Write to a file with \`[FALLBACK]\` prefix
+2. These files are auto-ingested when Open Palace returns
 
 See the \`open-palace\` skill for full tool reference and examples.
 `;
@@ -464,22 +576,33 @@ export function registerOnboardingTools(server: McpServer): void {
       const needsUpdate = isComplete && installedVersion !== CURRENT_VERSION;
       const env = await detectEnvironments();
 
+      const migrationApplied = config.onboarding?.migration_applied === true;
+
       if (isComplete && !needsUpdate) {
+        const statusObj: Record<string, unknown> = {
+          status: migrationApplied ? "complete" : "migration_pending",
+          version: CURRENT_VERSION,
+          completed_at: config.onboarding?.completed_at,
+          migration_applied: migrationApplied,
+          environments: env,
+        };
+
+        if (!migrationApplied) {
+          statusObj.message =
+            "Open Palace is installed but AGENTS.md migration has not been applied. " +
+            "The native memory/ workflow in AGENTS.md still competes with Open Palace. " +
+            "Run mp_onboarding_init to get migration guidance, then follow it to rewrite " +
+            "AGENTS.md so Open Palace is the sole memory system.";
+          statusObj.migration_guidance_available = true;
+        } else {
+          statusObj.message = "Open Palace is fully integrated and up to date.";
+        }
+
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(
-                {
-                  status: "complete",
-                  version: CURRENT_VERSION,
-                  completed_at: config.onboarding?.completed_at,
-                  environments: env,
-                  message: "Open Palace is fully integrated and up to date.",
-                },
-                null,
-                2
-              ),
+              text: JSON.stringify(statusObj, null, 2),
             },
           ],
         };
@@ -707,11 +830,16 @@ export function registerOnboardingTools(server: McpServer): void {
 
       const configHint = `\nAll parameters are configurable. Run mp_config_reference to see the full reference (${isUpdate ? "includes new v0.4 parameters" : "28 parameters with defaults, types, and affected systems"}).`;
 
+      const migrationApplied = (await getConfig()).onboarding?.migration_applied === true;
+      const migrationBlock = (!migrationApplied && wsPath)
+        ? `\n\n---\n${MIGRATION_GUIDANCE}`
+        : "";
+
       return {
         content: [
           {
             type: "text",
-            text: `${isUpdate ? "Update" : "Onboarding"} complete! (${envList})\n\n${results.join("\n")}${configHint}`,
+            text: `${isUpdate ? "Update" : "Onboarding"} complete! (${envList})\n\n${results.join("\n")}${configHint}${migrationBlock}`,
           },
         ],
       };

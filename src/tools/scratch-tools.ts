@@ -15,6 +15,9 @@ import {
   promoteScratch,
   scratchStats,
 } from "../core/scratch.js";
+import { getWorkspacePath } from "../core/sync.js";
+import fs from "node:fs/promises";
+import path from "node:path";
 
 export function registerScratchTools(server: McpServer): void {
   server.tool(
@@ -92,23 +95,56 @@ export function registerScratchTools(server: McpServer): void {
 
       const stats = await scratchStats();
 
+      let hint: string | undefined;
+      if (entries.length === 0) {
+        hint = await detectNativeMemoryHint();
+      }
+
+      const result: Record<string, unknown> = { stats, entries };
+      if (hint) result.hint = hint;
+
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(
-              {
-                stats,
-                entries,
-              },
-              null,
-              2
-            ),
+            text: JSON.stringify(result, null, 2),
           },
         ],
       };
     }
   );
+
+  /**
+   * Check if recent native memory/*.md files exist when scratch is empty,
+   * and return a hint nudging the agent to use mp_scratch_write next time.
+   */
+  async function detectNativeMemoryHint(): Promise<string | undefined> {
+    try {
+      const wsPath = getWorkspacePath();
+      if (!wsPath) return undefined;
+      const memDir = path.join(wsPath, "memory");
+      const files = await fs.readdir(memDir);
+      const mdFiles = files.filter((f) => f.endsWith(".md"));
+      if (mdFiles.length === 0) return undefined;
+
+      const now = Date.now();
+      const twoDaysMs = 2 * 24 * 60 * 60 * 1000;
+      let recentCount = 0;
+      for (const f of mdFiles) {
+        const stat = await fs.stat(path.join(memDir, f));
+        if (now - stat.mtimeMs < twoDaysMs) recentCount++;
+      }
+      if (recentCount === 0) return undefined;
+
+      return (
+        `No recent scratch entries, but ${recentCount} native memory/*.md file(s) ` +
+        `were modified in the last 2 days. These are auto-ingested on startup, but ` +
+        `for instant searchability and tagging, use mp_scratch_write directly next time.`
+      );
+    } catch {
+      return undefined;
+    }
+  }
 
   server.tool(
     "mp_scratch_promote",
