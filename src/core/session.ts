@@ -53,6 +53,9 @@ export async function getAutoInjectPreamble(): Promise<string | null> {
     }
   }
 
+  preamble += "\n**Sub-agent reminder:** If you are a sub-agent with an assigned identity, ";
+  preamble += "call `mp_session_end` with your entity_id and learnings before completing your task.\n";
+
   preamble +=
     "\n--- End auto-injected context. Use mp_session_start for full startup. ---\n";
 

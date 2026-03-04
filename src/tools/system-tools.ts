@@ -11,9 +11,17 @@ import {
   listSystems,
   executeSystem,
   getSystemState,
+  getScheduleInfo,
 } from "../core/system.js";
 import { updateConfig, getConfigValue } from "../core/config.js";
 import { getLibrarianStatus } from "../core/librarian.js";
+
+/** Config paths for known cron systems. */
+const SYSTEM_SCHEDULE_CONFIG: Record<string, { configPath: string; fallback: string }> = {
+  librarian: { configPath: "librarian.schedules.digest.interval", fallback: "daily" },
+  health_check: { configPath: "", fallback: "weekly" },
+  memory_decay: { configPath: "", fallback: "weekly" },
+};
 
 export function registerSystemTools(server: McpServer): void {
   server.tool(
@@ -93,6 +101,12 @@ export function registerSystemTools(server: McpServer): void {
           };
         }
 
+        // Resolve schedule info for known cron systems
+        const schedCfg = SYSTEM_SCHEDULE_CONFIG[name];
+        const schedInfo = schedCfg
+          ? await getScheduleInfo(name, schedCfg.configPath, schedCfg.fallback)
+          : null;
+
         // Librarian status includes safe_watermark and digest_coverage
         if (name === "librarian") {
           const libStatus = await getLibrarianStatus();
@@ -104,6 +118,12 @@ export function registerSystemTools(server: McpServer): void {
                   {
                     name,
                     ...state,
+                    ...(schedInfo ? {
+                      schedule: schedInfo.schedule,
+                      next_due: schedInfo.next_due,
+                      overdue: schedInfo.overdue,
+                      overdue_by: schedInfo.overdue_by,
+                    } : {}),
                     safe_watermark: libStatus.state.safe_watermark ?? null,
                     digest_coverage: libStatus.state.digest_coverage ?? {},
                     unprocessed_components: libStatus.unprocessed_components,
@@ -120,18 +140,42 @@ export function registerSystemTools(server: McpServer): void {
           content: [
             {
               type: "text",
-              text: JSON.stringify({ name, ...state }, null, 2),
+              text: JSON.stringify({
+                name,
+                ...state,
+                ...(schedInfo ? {
+                  schedule: schedInfo.schedule,
+                  next_due: schedInfo.next_due,
+                  overdue: schedInfo.overdue,
+                  overdue_by: schedInfo.overdue_by,
+                } : {}),
+              }, null, 2),
             },
           ],
         };
       }
 
+      // All systems — enrich each with schedule info
       const systems = listSystems();
-      const text = JSON.stringify(
-        systems.map((s) => ({ name: s.name, ...s.state })),
-        null,
-        2
+      const enriched = await Promise.all(
+        systems.map(async (s) => {
+          const schedCfg = SYSTEM_SCHEDULE_CONFIG[s.name];
+          const schedInfo = schedCfg
+            ? await getScheduleInfo(s.name, schedCfg.configPath, schedCfg.fallback)
+            : null;
+          return {
+            name: s.name,
+            ...s.state,
+            ...(schedInfo ? {
+              schedule: schedInfo.schedule,
+              next_due: schedInfo.next_due,
+              overdue: schedInfo.overdue,
+              overdue_by: schedInfo.overdue_by,
+            } : {}),
+          };
+        })
       );
+      const text = JSON.stringify(enriched, null, 2);
       return { content: [{ type: "text", text }] };
     }
   );

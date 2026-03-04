@@ -100,12 +100,23 @@ mp_changelog_record scope="projects/liteLetter" type="decision"
 
 ### 4. Session End / Long Session
 
-If the session ran long (>1hr or >50k tokens):
+**Quick path (recommended):** Call \`mp_session_end\` with your learnings summary.
+It auto-writes scratch + entity evolution in one call.
+
+For longer sessions (>1hr or >50k tokens), also:
 
 1. \`mp_snapshot_save\` with current focus and active tasks
-2. \`mp_scratch_write\` a session summary
-3. Promote important scratch entries to components: \`mp_scratch_promote\`
-4. If relevant, update component summaries: \`mp_summary_update\`
+2. Promote important scratch entries to components: \`mp_scratch_promote\`
+3. If relevant, update component summaries: \`mp_summary_update\`
+
+### 5. Spawning Sub-Agents
+
+When you spawn a sub-agent with a specific identity:
+
+1. Call \`mp_spawn_context(entity_id, task?)\` to get the context block
+2. Inject the returned text into the sub-agent's prompt
+3. The context includes a completion protocol that tells the sub-agent to call
+   \`mp_session_end\` before returning
 
 ## When to Use What
 
@@ -119,6 +130,8 @@ If the session ran long (>1hr or >50k tokens):
 | New project or knowledge domain | \`mp_component_create\` |
 | "What projects do I have?" | \`mp_index_get\` |
 | "What did we decide about X?" | \`mp_changelog_query\` |
+| Spawning a sub-agent with context | \`mp_spawn_context\` |
+| Session/sub-agent ending | \`mp_session_end\` |
 | Sub-agent personality for spawn | \`mp_entity_get_soul\` |
 | Search across all data | \`mp_raw_search\` |
 | Deep query with synthesis | \`mp_system_execute("retrieval_digest")\` |
@@ -137,8 +150,10 @@ If \`mp_*\` tool calls fail with connection errors or the MCP server is down:
 
 ## Tool Quick Reference
 
-### Session (START HERE)
+### Session & Agent Lifecycle (START HERE)
 - \`mp_session_start\` — **Load full memory context in one call** (L0 index + snapshot + recent scratch). Call FIRST.
+- \`mp_spawn_context entity_id task? include_components?\` — Generate context block for sub-agent spawn (soul + components + scratch + completion protocol)
+- \`mp_session_end learnings entity_id? tags?\` — Capture session/sub-agent learnings → scratch + evolution log. Call BEFORE completing.
 
 ### Scratch (Working Memory)
 - \`mp_scratch_write content tags?\` — Capture insight immediately (NEVER write files instead)
@@ -215,6 +230,7 @@ When you call \`mp_onboarding_status\` and it reports \`update_available\`, run
 - **Librarian**: Digests changelogs → updates summaries (with safe watermark protection)
 - **Write validation**: Decision-type entries are auto-validated for duplicates/contradictions
 - **Memory decay**: Cold data archived based on temperature model (access + age + references)
+- **Overdue systems**: Cron-scheduled systems (librarian digest, health check, memory decay) auto-execute at startup if overdue
 `;
 
 // ---------------------------------------------------------------------------

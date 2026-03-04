@@ -12,7 +12,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 import { initDataDirectory } from "./core/init.js";
 import { registerBuiltinHooks } from "./core/posthook.js";
-import { loadSystemStates } from "./core/system.js";
+import { loadSystemStates, runOverdueSystems } from "./core/system.js";
 import { registerLibrarianSystem } from "./core/librarian.js";
 import { registerHealthCheckSystem } from "./core/health-check.js";
 import { registerMemoryIngestSystem, runMemoryIngest } from "./core/memory-ingest.js";
@@ -41,6 +41,7 @@ import { registerRelationshipTools } from "./tools/relationship-tools.js";
 import { registerSearchTools } from "./tools/search-tools.js";
 import { registerStalenessTools } from "./tools/staleness-tools.js";
 import { registerSessionTools } from "./tools/session-tools.js";
+import { registerAgentTools } from "./tools/agent-tools.js";
 
 /**
  * Wrap server.tool() to auto-inject session context on first tool call.
@@ -128,6 +129,7 @@ async function main() {
   registerRelationshipTools(server);
   registerSearchTools(server);
   registerStalenessTools(server);
+  registerAgentTools(server);
 
   // Register MCP Resource: L0 index as auto-loadable resource for supporting hosts
   server.resource(
@@ -176,6 +178,18 @@ async function main() {
     }
   } catch {
     // Ingest failure is non-fatal
+  }
+
+  // Run overdue cron systems (librarian digest, health check, decay)
+  try {
+    const { executed } = await runOverdueSystems();
+    if (executed.length > 0) {
+      console.error(
+        `[open-palace] Executed overdue systems: ${executed.join(", ")}`
+      );
+    }
+  } catch {
+    // Overdue check failure is non-fatal
   }
 
   // Connect via stdio transport

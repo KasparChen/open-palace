@@ -577,6 +577,74 @@ async function main() {
   const verifyFail = await verifySummary("projects/nonexistent");
   assert(!verifyFail.success, "verify nonexistent component fails");
 
+  // 24. Agent Tools — spawn_context + session_end
+  console.log("\n[24] Agent Tools (Sub-Agent Lifecycle)");
+  const agentEntity = await entity.createEntity(
+    "e2e_agent_sub",
+    "E2E Sub Agent",
+    "Test sub-agent for spawn context",
+    "You are a test sub-agent. Focus on quality."
+  );
+  assert(agentEntity.entity_id === "e2e_agent_sub", "sub-agent entity created");
+
+  const subSoul = await entity.getSoul("e2e_agent_sub");
+  assert(subSoul !== null, "sub-agent soul exists");
+  assert(subSoul!.includes("test sub-agent"), "soul content matches");
+
+  // Test mp_session_end flow: write scratch + log evolution
+  const scratchBefore = await scratch.readScratch({ limit: 100 });
+  const countBefore = scratchBefore.length;
+
+  await scratch.writeScratch({
+    content: "E2E session end test: learned that retry logic needs exponential backoff",
+    tags: ["session-learnings", "e2e"],
+    source: "session_end:e2e_agent_sub",
+  });
+
+  const scratchAfter = await scratch.readScratch({ limit: 100 });
+  assert(scratchAfter.length > countBefore, "session_end scratch entry created");
+  const sessionEntry = scratchAfter.find(
+    (e) => e.source === "session_end:e2e_agent_sub"
+  );
+  assert(sessionEntry !== undefined, "session_end entry has correct source");
+  assert(sessionEntry!.tags!.includes("session-learnings"), "session_end entry has correct tag");
+
+  await entity.logEvolution(
+    "e2e_agent_sub",
+    "learned exponential backoff for retries",
+    "session_end:e2e_agent_sub"
+  );
+  const updatedEntity = await entity.getEntity("e2e_agent_sub");
+  assert(updatedEntity!.evolution_log.length >= 2, "evolution log has session_end entry");
+  const lastEvo = updatedEntity!.evolution_log[updatedEntity!.evolution_log.length - 1];
+  assert(lastEvo.source === "session_end:e2e_agent_sub", "evolution source is session_end");
+
+  // 25. System Overdue Detection
+  console.log("\n[25] System Overdue Detection");
+
+  // Librarian schedule info — value depends on user's config
+  const libSchedule = await system.getScheduleInfo("librarian", "librarian.schedules.digest.interval", "daily");
+  const validSchedules = ["hourly", "daily", "weekly", "monthly", "manual"];
+  assert(validSchedules.includes(libSchedule.schedule), "librarian schedule is a valid interval");
+  assert(libSchedule.overdue === true || libSchedule.next_due !== null, "librarian has schedule info");
+
+  // Health check — uses fallback interval
+  const hcSchedule = await system.getScheduleInfo("health_check", "", "weekly");
+  assert(hcSchedule.schedule === "weekly", "health_check fallback schedule is weekly");
+
+  // Run overdue systems (should execute at least some)
+  const overdueResult = await system.runOverdueSystems();
+  assert(Array.isArray(overdueResult.executed), "runOverdueSystems returns executed array");
+  assert(Array.isArray(overdueResult.skipped), "runOverdueSystems returns skipped array");
+  console.log(`  Overdue executed: [${overdueResult.executed.join(", ")}]`);
+  console.log(`  Overdue skipped: [${overdueResult.skipped.join(", ")}]`);
+
+  // After running, schedule info should update
+  const hcAfter = await system.getScheduleInfo("health_check", "", "weekly");
+  if (overdueResult.executed.includes("health_check")) {
+    assert(hcAfter.overdue === false, "health_check no longer overdue after execution");
+  }
+
   // Summary
   console.log(`\n=== Results: ${passed} passed, ${failed} failed ===\n`);
   process.exit(failed > 0 ? 1 : 0);
